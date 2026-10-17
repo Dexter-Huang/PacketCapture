@@ -12,6 +12,8 @@
 
 新增多平台大模型采集模块：元宝已有原生 SSE 样本验证；豆包、Kimi、千问、文心一言先提供应用预设，协议解析待逐一验证。支持回答 JSON 导出和默认关闭的只读 ADB 结果接口，供 GEO 品牌监测联调。[模块设计与手机执行规划](docs/architecture.md) · [结果接口与 Python 客户端](docs/automation-v1.md)。
 
+开发排查与验证经验见 [大模型 App 抓包开发经验](docs/capture-development-notes.md)，包含元宝案例、TLS/QUIC 排查、SSE 实现注意事项和新平台验证流程。
+
 ## 主要功能
 
 | 功能 | 说明 |

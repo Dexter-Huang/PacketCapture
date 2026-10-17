@@ -14,6 +14,8 @@ Packet Capture uses Android `VpnService` to capture traffic from selected apps w
 
 The new `llm` JVM module normalizes captured answers independently of the VPN transport. Yuanbao has a verified native SSE sample; Doubao, Kimi, Qianwen and Wenxin are discovery profiles pending protocol validation. JSON answer exports and an opt-in, read-only ADB bridge support GEO integration. See [architecture](docs/architecture.md) and [v1 interface / Python client](docs/automation-v1.md) (Chinese).
 
+See [capture development notes](docs/capture-development-notes.md) (Chinese) for the Yuanbao investigation, TLS/QUIC pitfalls, SSE implementation lessons, and platform validation workflow.
+
 | Feature | Description |
 | --- | --- |
 | Capture by app | Search by app name or package name, select one or more apps, and monitor upload/download totals and request counts. |
