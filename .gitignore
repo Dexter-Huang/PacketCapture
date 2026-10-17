@@ -1,0 +1,51 @@
+# IDE and machine-specific configuration
+/.idea/
+*.iml
+local.properties
+.DS_Store
+Thumbs.db
+
+# Gradle, Kotlin, and native build output
+.gradle/
+.kotlin/
+**/build/
+.externalNativeBuild/
+.cxx/
+
+# Local captures and generated artifacts
+/captures/
+/dist/
+/artifacts/
+/design/
+
+# Local development documentation, fixtures, and test client
+/tools/
+/test-client/
+
+# Local agent installations and private device handoff
+/.agents/
+/.codex/
+/.claude/
+/HANDOFF-*.md
+
+# Signing material and captured application binaries (never source)
+/com.packetcapture.tests
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.apk
+*.aab
+*.har
+*.pcap
+*.pcapng
+*.key
+*.pem
+!app/src/debug/res/raw/fixture_ca.pem
+
+# Python client caches and local configuration
+__pycache__/
+*.py[cod]
+.venv/
+.env
+.env.*

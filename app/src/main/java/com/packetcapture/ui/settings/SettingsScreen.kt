@@ -1,0 +1,186 @@
+package com.packetcapture.ui.settings
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.packetcapture.BuildConfig
+import com.packetcapture.core.*
+import com.packetcapture.llm.PlatformCatalog
+import com.packetcapture.ui.components.*
+
+@Composable internal fun SettingsScreen(
+    settings: AppSettings,
+    certificate: CertificateInfo?,
+    usedBytes: Long,
+    save: (AppSettings) -> Unit,
+    exportCertificate: () -> Unit,
+    apps: () -> Unit,
+    bypass: () -> Unit,
+    guide: () -> Unit,
+    clearStorage: () -> Unit,
+    canClearStorage: Boolean,
+    clearingStorage: Boolean,
+    installedApps: List<InstalledApp> = emptyList(),
+) {
+    var confirmClearStorage by rememberSaveable { mutableStateOf(false) }
+    var editTlsHosts by rememberSaveable { mutableStateOf(false) }
+    var platformPicker by rememberSaveable { mutableStateOf(false) }
+    LazyColumn(Modifier.fillMaxSize().testTag("settings-list"), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        item { Panel {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Outlined.WorkspacePremium, null, Modifier.size(44.dp), tint = MaterialTheme.colorScheme.primary)
+                Column(Modifier.padding(start = 12.dp)) { Text("HTTPS 证书", fontWeight = FontWeight.Bold); Muted(if (certificate == null) "生成后配置测试应用信任" else "已生成 · 仅导出公开证书") }
+            }
+            certificate?.let { Spacer(Modifier.height(8.dp)); Muted("SHA-256 ${it.fingerprint}"); Muted("有效期至 ${date(it.expiresAt)}") }
+            Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(onClick = exportCertificate, Modifier.weight(1f)) { Text("导出证书") }
+                OutlinedButton(onClick = guide, Modifier.weight(1f)) { Text("配置指引") }
+            }
+        } }
+        item { Muted("抓包"); Spacer(Modifier.height(8.dp)); Panel {
+            SettingRow(Icons.Outlined.Apps, "目标应用", "已选 ${settings.capture.packages.size} 个", apps)
+            HorizontalDivider()
+            SettingRow(Icons.Outlined.SmartToy, "大模型应用预设", "选择平台并替换目标应用") { platformPicker = true }
+            HorizontalDivider()
+            Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Outlined.Lock, null); Text("HTTPS 解密", Modifier.weight(1f).padding(start = 12.dp))
+                Switch(settings.capture.decryptHttps, { save(settings.copy(capture = settings.capture.copy(decryptHttps = it))) })
+            }
+            HorizontalDivider()
+            Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("阻止 UDP 443（测试回退）", fontWeight = FontWeight.Medium)
+                    Muted("尝试让应用改用 HTTPS/TCP；不支持回退的应用可能无法联网。默认关闭。")
+                }
+                Switch(settings.capture.blockUdp443, { save(settings.copy(capture = settings.capture.copy(blockUdp443 = it))) })
+            }
+            HorizontalDivider(); SettingRow(Icons.Outlined.Language, "透传域名", "${settings.capture.bypassDomains.size} 条", bypass)
+            HorizontalDivider(); SettingRow(Icons.Outlined.VerifiedUser, "TLS 域名映射", "${settings.capture.tlsHostOverrides.size} 条") { editTlsHosts = true }
+            Muted("抓包设置在下一次启动生效")
+        } }
+        item { ProxySettings(settings.capture.upstreamProxy) { proxy ->
+            save(settings.copy(capture = settings.capture.copy(upstreamProxy = proxy)))
+        } }
+        item { Muted("工具接口"); Spacer(Modifier.height(8.dp)); Panel {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("ADB 结果导出", fontWeight = FontWeight.Medium)
+                    Muted("允许已连接的 ADB 客户端读取会话和回答。回答可能包含对话内容。")
+                }
+                Switch(settings.adbExportEnabled, { save(settings.copy(adbExportEnabled = it)) }, Modifier.testTag("adb-export"))
+            }
+            Muted("默认关闭 · 仅读取 · 平台解析状态见预设列表")
+        } }
+        item { Muted("存储"); Spacer(Modifier.height(8.dp)); Panel {
+            SettingRow(Icons.Outlined.Description, "每份正文上限", "5 MiB")
+            HorizontalDivider(); SettingRow(Icons.Outlined.Storage, "总存储额度", "500 MiB")
+            HorizontalDivider(); SettingRow(Icons.Outlined.PieChart, "已用空间", bytes(usedBytes))
+            LinearProgressIndicator(progress = { (usedBytes.toFloat() / DEFAULT_STORAGE_LIMIT).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+            Spacer(Modifier.height(8.dp)); Muted("达到限额后保留已保存的正文前缀，网络转发继续。")
+            HorizontalDivider(Modifier.padding(vertical = 12.dp))
+            OutlinedButton(onClick = { confirmClearStorage = true }, enabled = canClearStorage && !clearingStorage,
+                modifier = Modifier.fillMaxWidth().testTag("clear-storage"),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
+                Icon(Icons.Outlined.DeleteSweep, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(if (clearingStorage) "正在清空…" else "清空所有存储")
+            }
+            Muted("清空前请先停止抓包。应用设置和 HTTPS 证书会保留。")
+        } }
+        item { Muted("通用"); Spacer(Modifier.height(8.dp)); Panel {
+            SettingRow(Icons.Outlined.Palette, "外观", when (settings.theme) { ThemeMode.SYSTEM -> "跟随系统"; ThemeMode.LIGHT -> "浅色"; ThemeMode.DARK -> "深色" }) {
+                val next = ThemeMode.entries[(settings.theme.ordinal + 1) % ThemeMode.entries.size]
+                save(settings.copy(theme = next))
+            }
+            HorizontalDivider(); SettingRow(Icons.Outlined.Info, "Packet Capture", "v${BuildConfig.VERSION_NAME}")
+            Muted("所有运行组件位于手机内 · 导出保留请求头和响应头原值")
+        } }
+    }
+    if (platformPicker) AlertDialog(onDismissRequest = { platformPicker = false }, title = { Text("大模型应用预设") }, text = {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("预设只选择已安装的候选包。HTTPS 信任和解析支持需按平台及版本验证；也可在目标应用中手动选择。")
+            PlatformCatalog.platforms.forEach { platform ->
+                val packages = installedApps.map { it.packageName }.toSet().intersect(platform.packageCandidates)
+                OutlinedButton(enabled = packages.isNotEmpty(), onClick = {
+                    save(settings.copy(capture = settings.capture.copy(packages = packages)))
+                    platformPicker = false
+                }, modifier = Modifier.fillMaxWidth()) {
+                    Text("${platform.displayName} · ${if (platform.support == "verified_sample") "已有元宝 2.88.0 样本" else "解析待验证"}${if (packages.isEmpty()) " · 未找到候选包" else ""}")
+                }
+            }
+        }
+    }, confirmButton = { TextButton(onClick = { platformPicker = false }) { Text("关闭") } })
+    if (editTlsHosts) {
+        var text by remember { mutableStateOf(TlsHostOverrides.format(settings.capture.tlsHostOverrides)) }
+        val parsed = runCatching { TlsHostOverrides.parse(text) }
+        AlertDialog(onDismissRequest = { editTlsHosts = false }, title = { Text("TLS 域名映射") }, text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("连接地址不变，使用指定域名发送 SNI 并校验证书。适用于应用按 IP 连接、服务器证书只有域名的情况。")
+                OutlinedTextField(text, { text = it }, label = { Text("每行：原主机=证书域名") }, minLines = 3, isError = parsed.isFailure)
+                parsed.exceptionOrNull()?.message?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            }
+        }, confirmButton = { TextButton(enabled = parsed.isSuccess, onClick = {
+            save(settings.copy(capture = settings.capture.copy(tlsHostOverrides = parsed.getOrThrow())))
+            editTlsHosts = false
+        }) { Text("保存") } }, dismissButton = { TextButton(onClick = { editTlsHosts = false }) { Text("取消") } })
+    }
+    if (confirmClearStorage) AlertDialog(
+        onDismissRequest = { confirmClearStorage = false },
+        title = { Text("清空所有存储？") },
+        text = { Text("将删除全部抓包会话、请求、连接记录和正文文件，无法恢复。\n\n应用设置、HTTPS 证书及已导出的文件会保留。") },
+        confirmButton = {
+            TextButton(onClick = { confirmClearStorage = false; clearStorage() }, enabled = canClearStorage && !clearingStorage,
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("确认清空") }
+        },
+        dismissButton = { TextButton(onClick = { confirmClearStorage = false }) { Text("取消") } },
+    )
+}
+
+@Composable internal fun ProxySettings(proxy: UpstreamProxy, save: (UpstreamProxy) -> Unit) {
+    var portText by rememberSaveable(proxy.port) { mutableStateOf(proxy.port.toString()) }
+    val port = portText.toIntOrNull()?.takeIf { it in 1..65535 }
+    val invalid = proxy.enabled && port == null
+    Muted("上游代理")
+    Spacer(Modifier.height(8.dp))
+    Panel {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Outlined.AltRoute, null, tint = MaterialTheme.colorScheme.primary)
+            Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                Text("通过代理转发", fontWeight = FontWeight.SemiBold)
+                Muted(if (proxy.enabled) "抓包后交给本机代理" else "关闭时直接连接")
+            }
+            Switch(proxy.enabled, { save(proxy.copy(enabled = it)) }, Modifier.testTag("proxy-enabled").semantics { contentDescription = "通过代理转发" })
+        }
+        HorizontalDivider(Modifier.padding(vertical = 8.dp))
+        SettingRow(Icons.Outlined.Hub, "代理协议", "SOCKS5")
+        SettingRow(Icons.Outlined.PhoneAndroid, "本机地址", proxy.host)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            OutlinedTextField(portText, { portText = it }, Modifier.weight(1f).testTag("proxy-port"), enabled = proxy.enabled,
+                label = { Text("代理端口") }, singleLine = true, isError = invalid,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+            Button(onClick = { port?.let { save(proxy.copy(port = it)) } },
+                enabled = proxy.enabled && port != null && port != proxy.port, modifier = Modifier.testTag("proxy-save")) { Text("保存") }
+        }
+        Spacer(Modifier.height(6.dp))
+        if (invalid) Text("请输入 1–65535 之间的端口", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+        else Muted(if (port != proxy.port) "端口修改后需保存" else "已保存端口 ${proxy.port} · 关闭代理会保留端口")
+        Spacer(Modifier.height(12.dp))
+        Muted("设置在下一次开始抓包时生效")
+        Spacer(Modifier.height(8.dp))
+        Muted("请先将 v2rayNG 切换为“仅代理”并启动，端口需保持一致。目标应用中不要选择 v2rayNG。代理不可用时会报错，不会自动直连。")
+    }
+}
