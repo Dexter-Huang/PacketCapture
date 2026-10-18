@@ -119,7 +119,7 @@ import com.packetcapture.ui.components.*
                     save(settings.copy(capture = settings.capture.copy(packages = packages)))
                     platformPicker = false
                 }, modifier = Modifier.fillMaxWidth()) {
-                    Text("${platform.displayName} · ${if (platform.support == "verified_sample") "已有元宝 2.88.0 样本" else "解析待验证"}${if (packages.isEmpty()) " · 未找到候选包" else ""}")
+                    Text("${platform.displayName} · ${if (platform.support == "verified_sample") "已有实时 SSE 样本" else "解析待验证"}${if (packages.isEmpty()) " · 未找到候选包" else ""}")
                 }
             }
         }

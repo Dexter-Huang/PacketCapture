@@ -10,9 +10,9 @@
 
 **Android 8.0+ · 按应用抓包 · HTTP/1.1 / HTTP/2 · HAR / cURL 导出 · 本机 SOCKS5 代理**
 
-新增多平台大模型采集模块：元宝已有原生 SSE 样本验证；豆包、Kimi、千问、文心一言先提供应用预设，协议解析待逐一验证。支持回答 JSON 导出和默认关闭的只读 ADB 结果接口，供 GEO 品牌监测联调。[模块设计与手机执行规划](docs/architecture.md) · [结果接口与 Python 客户端](docs/automation-v1.md)。
+新增多平台大模型采集模块：元宝 2.88.0、豆包 15.0.0、千问 7.4.7.3058、DeepSeek 2.6.2 已有实时 SSE 样本及回答解码器，均有目标应用证书信任等测试前提；Kimi、文心一言提供待验证应用预设。支持回答 JSON 导出和默认关闭的只读 ADB 结果接口，供 GEO 品牌监测联调。[模块设计与手机执行规划](docs/architecture.md) · [结果接口与 Python 客户端](docs/automation-v1.md)。
 
-开发排查与验证经验见 [大模型 App 抓包开发经验](docs/capture-development-notes.md)，包含元宝案例、TLS/QUIC 排查、SSE 实现注意事项和新平台验证流程。
+开发排查与验证经验见 [大模型 App 抓包开发经验](docs/capture-development-notes.md)，包含元宝、豆包、千问和 DeepSeek 案例，TLS/QUIC、ECH 透传、原生 CA 策略、额外正文加密及 SSE 解析排查。[豆包实测结果](DOUBAO-STREAM-TEST.md) · [千问实测结果](QIANWEN-CAPTURE-TEST.md) · [DeepSeek 实测结果](DEEPSEEK-CAPTURE-TEST.md)。千问快速文本解析已验证，实时解密仍依赖文档所述本地测试条件。
 
 ## 主要功能
 

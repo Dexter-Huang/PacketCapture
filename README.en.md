@@ -12,9 +12,9 @@ Packet Capture uses Android `VpnService` to capture traffic from selected apps w
 
 ## Features
 
-The new `llm` JVM module normalizes captured answers independently of the VPN transport. Yuanbao has a verified native SSE sample; Doubao, Kimi, Qianwen and Wenxin are discovery profiles pending protocol validation. JSON answer exports and an opt-in, read-only ADB bridge support GEO integration. See [architecture](docs/architecture.md) and [v1 interface / Python client](docs/automation-v1.md) (Chinese).
+The new `llm` JVM module normalizes captured answers independently of the VPN transport. Yuanbao 2.88.0, Doubao 15.0.0, Qianwen 7.4.7.3058 and DeepSeek 2.6.2 have verified live SSE samples and answer decoders, subject to target-app trust and other test conditions. Kimi and Wenxin remain discovery profiles. JSON answer exports and an opt-in, read-only ADB bridge support GEO integration. See [architecture](docs/architecture.md) and [v1 interface / Python client](docs/automation-v1.md) (Chinese).
 
-See [capture development notes](docs/capture-development-notes.md) (Chinese) for the Yuanbao investigation, TLS/QUIC pitfalls, SSE implementation lessons, and platform validation workflow.
+See [capture development notes](docs/capture-development-notes.md) (Chinese) for the Yuanbao, Doubao, Qianwen and DeepSeek investigations: TLS/QUIC, ECH passthrough, native CA policies, application-payload encryption and SSE parsing. [Doubao test results](DOUBAO-STREAM-TEST.md) · [Qianwen test results](QIANWEN-CAPTURE-TEST.md) · [DeepSeek test results](DEEPSEEK-CAPTURE-TEST.md) (Chinese). Qianwen quick-text parsing is verified; live decryption still requires the documented local test conditions.
 
 | Feature | Description |
 | --- | --- |

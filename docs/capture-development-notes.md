@@ -1,6 +1,6 @@
 # 大模型 App 抓包开发经验
 
-记录日期：2026-10-17（Asia/Shanghai）。本文来自本项目的真机实验、导出证据和代码验证，不是各平台协议的官方说明。元宝结论限定为 Android 版 2.88.0 的本地测试环境；豆包、Kimi、千问、文心一言尚未完成同等验证。
+记录日期：2026-10-17（Asia/Shanghai）。本文来自本项目的真机实验、导出证据和代码验证，不是各平台协议的官方说明。元宝 2.88.0、豆包 15.0.0、千问 7.4.7.3058、DeepSeek 2.6.2 已验证各自本地测试条件下的实时 SSE；Kimi、文心一言仍待验证。
 
 模块扩展见 [架构说明](architecture.md)，结果读取见 [ADB 接口 v1](automation-v1.md)。本文侧重如何定位问题、验证结果和避免重复走弯路。
 
@@ -44,7 +44,7 @@
 
 ## 3. 按层排查，避免把所有失败归结为证书固定
 
-建议依次区分：VPN 转发 → 目标应用到本机代理的 TLS → 代理到服务器的 TLS → TLS 内部协议 → HTTP 实体解码 → SSE → 平台语义 → 任务关联。
+建议依次区分：VPN 转发 → 目标应用到本机代理的 TLS → 代理到服务器的 TLS → TLS 内部协议 → HTTP 实体解压与额外正文加密 → SSE → 平台语义 → 任务关联。
 
 | 现象 | 优先确认 | 不能直接得出的结论 |
 | --- | --- | --- |
@@ -54,6 +54,7 @@
 | 目标应用侧 TLS 已成功，上游提示 SAN 不匹配 | 上游连接地址、SNI、证书校验名与证书 SAN | 需要关闭服务器证书校验 |
 | TLS 已解密却没有 HTTP | 明文是否为原生二进制网关协议，ALPN/首字节是否支持 HTTP 判断 | 所有 TLS 都应该交给 HTTP 解码器 |
 | 有 UDP 443 或 Google QUIC 版本头 | 本轮开关、实际目的端、协议版本、是否另有网络栈 | 已能解密 QUIC，或禁用一处策略就能关闭全部 QUIC |
+| HTTPS 已解密、200 SSE 却是随机二进制 | 原始实体、Content-Encoding、正文加密配置；与同接口可读样本对照 | Base64 导出损坏，或看到 SSE Content-Type 就算流式成功 |
 | 有 SSE 但只有半段正文 | 是否仍在接收、gzip 前缀、配额、连接中断及结束事件 | HTTP 200 或已有部分文字就代表完成 |
 
 在只有症状而没有新证据时，不要让用户反复发送相同问题、固定等待很长时间。下一轮测试应能区分一个明确假设。
@@ -80,7 +81,7 @@
 
 | 尝试 | 本次观察 | 后续做法 |
 | --- | --- | --- |
-| 阻止 UDP 443，期待回退 TCP | 有过等待无回复、停止抓包后才看到回复的轮次 | 作为可选实验，不能承诺 App 支持回退；成功实验未开启此开关 |
+| 阻止 UDP 443，期待回退 TCP | 元宝有过等待无回复、停止抓包后才看到回复的轮次 | 元宝成功轮次关闭；豆包成功轮次开启。按目标版本验证，不能从转圈直接推断没有 TCP 回退 |
 | 修改三处原生 HTTP QUIC 策略 | 后续仍能观察到另一条网络路径的 Q043 流量 | 不把局部策略修改说成关闭全部 QUIC，先确认各网络栈 |
 | Java CA 配置或只追加 APK PEM | 普通接口可读，聊天仍失败 | 继续确认聊天实际使用的原生信任库 |
 | 仅导出 HTTP 条目 | 握手阶段失败的连接没有 HTTP 请求，关键原因缺失 | HAR 额外保留全量连接与失败信息 |
@@ -109,7 +110,7 @@
 | 连接错误与生命周期 | `capture/.../proxy/ProxyFailureDescription.kt`、`capture/.../engine/ConnectionRegistry.kt` |
 | SSE 快照与转发 | `capture/.../engine/TrafficRecorder.kt`、`capture/.../proxy/ExchangeBridge.kt` |
 | 正文解码、限额及导出 | `data/.../BodyDecoder.kt`、`FileBodyStore.kt`、`TrafficExporter.kt` |
-| 事件语法与平台语义 | `core/.../ServerSentEvents.kt`、`llm/.../YuanbaoDecoder.kt`、`AnswerReader.kt` |
+| 事件语法与平台语义 | `core/.../ServerSentEvents.kt`、`llm/.../YuanbaoDecoder.kt`、`DoubaoDecoder.kt`、`AnswerReader.kt` |
 
 表中 `...` 省略各模块的 `src/main/kotlin/com/packetcapture/{模块名}` 包路径。
 
@@ -134,7 +135,7 @@
 
 记录设备/系统、包名/版本、已安装 APK 摘要与 signer、抓包 App 版本、目标应用集合、HTTPS/UDP443/代理/TLS 映射、开始与发送时间、问题标记、用户观察、会话/请求 ID、正文截断与结束状态、原始证据路径。
 
-尽量只改变一个变量。记录以手机实际安装版本和界面状态为准；不要根据 APK 文件名推测已经安装，也不要混用昨日失败结论和今日成功证据。
+尽量只改变一个变量。记录以手机实际安装版本和界面状态为准；不要根据 APK 文件名推测已经安装，也不要混用不同日期、不同版本的实验结论。
 
 问题标记用于人工核查；接入任务系统后仍需持久化 `taskId/attemptId`、设备时间起点、`sessionId/exchangeId`。多个相同问题命中应报告歧义，不能擅自选最新答案。超时后先继续收集已发请求，不自动再提问。
 
@@ -151,7 +152,8 @@
 常用只读准备命令（PowerShell 7）：
 
 ```powershell
-$adbPath = Join-Path $env:ANDROID_HOME 'platform-tools/adb.exe'
+$sdkPath = Join-Path $env:LOCALAPPDATA 'Android/Sdk'
+$adbPath = Join-Path $sdkPath 'platform-tools/adb.exe'
 & $adbPath devices -l
 $deviceSerial = 'YOUR_DEVICE_SERIAL'
 $targetPackage = 'com.tencent.hunyuan.app.chat'
@@ -159,7 +161,7 @@ $targetPackage = 'com.tencent.hunyuan.app.chat'
     Select-String -Pattern 'versionName=|versionCode='
 ```
 
-测试与构建命令见 [接口验证说明](automation-v1.md#验证)。单元测试、APK 构建、实际安装、设备操作和端到端实时回答是不同验证层次，各自记录通过与未执行状态。当前 1.1.0 的解析回放和构建通过，但新增设置 UI 与 ADB 接口未做真机验证。
+测试与构建命令见 [接口验证说明](automation-v1.md#验证)。单元测试、APK 构建、实际安装、设备操作和端到端实时回答是不同验证层次，各自记录通过与未执行状态。1.1.0 解析回放和构建通过；后续在保留千问定向探针的本地版本实测设置开关及已有千问会话 ADB 结果，得到 unique_complete、答案及来源精确一致，开关已恢复关闭，见接口验证记录。
 
 ## 9. 下一个平台的最短验证流程
 
@@ -171,3 +173,66 @@ $targetPackage = 'com.tencent.hunyuan.app.chat'
 6. 真机正常回复、完整明文、结果核对都通过后，再提升平台支持状态；在文档记录验证版本和前提。
 
 保留实验原始资料在 `artifacts/`；将可复用经验、合成测试和代码提交 Git。公共文档不附登录凭据、私人对话、设备标识或测试签名材料。
+
+## 10. 豆包：三个独立障碍及解码结果
+
+豆包 15.0.0、Android 16 ARM64，抓包 App `1.0.6-native-tls`。完整实测摘要见 [豆包结果](../DOUBAO-STREAM-TEST.md)；本机接手千问时先读根目录 `HANDOFF-DOUBAO-QIANWEN.md`（私有忽略文件，不随克隆提供）。
+
+| 层次 | 失败证据 | 最终已验证条件 |
+| --- | --- | --- |
+| 传输 | 官方版允许 UDP443 时能回复，但仅见 Q043 和证书拒绝；阻止 UDP443 时转圈 | 开启阻止 UDP443，重启抓包并冷启动目标应用，后续 TCP 请求成功；转圈本身不能排除证书失败 |
+| 原生 TLS 信任 | 仅修改 network-security-config、显式 DER CA，或在 Java 验证入口加载 CA，主聊天仍拒绝证书 | 实际网络栈是 APK 自带 `libsscronet.so`（TTNet）。先前还有自定义根分支；选择原有 Android 验证器并通过 `X509Util.addTestRootCertificate` 加载既有 CA 后主 API 解密，链和域名验证保留 |
+| 额外正文加密 | `DB_STREAM_D` 正常回复，聊天返回 200 SSE，但实体不可读，无 Content-Encoding 可解释 | 在本地测试版关闭 `encrypt_config_v1.enabled` 后，用户发送 `DB_STREAM_E`，得到完整可读实时事件流 |
+
+成功 APK 只改变一份网络信任 XML、`classes32.dex` 和 `lib/arm64-v8a/libsscronet.so`，其他 41698 个非签名 payload 不变；最终 Manifest 保留非 debuggable。原生库三条指令修改针对该原始版本，不能移植其地址到千问。运行时调试曾借助临时 debuggable 版本和 `run-as`/LLDB，最终版本已脱离调试。构建、安装、实时验证是独立证据，静态构建报告中的 `liveCaptureVerified=false` 不代表后续实测失败。
+
+协议及 Kotlin 实现要点：
+
+- 实时接口限定为 `POST https://api5-normal-gl.doubao.com/chat/completion`，当前问题来自 `messages[].content_block` 的 `10000` 文本块；历史消息不是当前问题。
+- `SSE_ACK` 确认当前本地消息；`FULL_MSG_NOTIFY` 是用户回显。答案来自 `STREAM_MSG_NOTIFY` 初始文本、`STREAM_CHUNK` 追加块及 `CHUNK_DELTA`。只拼 DELTA 会丢失初始 `# `。
+- 区分外层 patch 与文本块 patch，核对消息/块 ID。要求文本结束和 `SSE_REPLY_END.end_type` 顺序 1、2、3；未知替换和事件不会被报为完整。
+- 实测 rich media 是推荐视频，不当作搜索引用；推理和搜索来源未验证，DTO 保持空值及 `not_collected`。
+- 成功明文响应仍带 `x-tt-e-b: 1`；结合实际正文判断额外加密，不能只凭这个头判断。HAR 的 Base64 只是导出表示，先解码，再区分 gzip、正文加密和 SSE。
+- 新增 `DoubaoDecoder` 及 `AnswerReader` 注册，13 项合成测试覆盖协议和完整性边界。用真实 HAR 离线回放得到 `complete`、56 个事件、385 个 Unicode 码点，与保存的流式答案一致；UI 对照另行去除 Markdown 标题与排版空白，不混为字节一致。
+
+千问 7.4.7.3058 本地测试版已完成一条实时 SSE 的明文及 UI 核对，见 [千问实测](../QIANWEN-CAPTURE-TEST.md)。本地信任与兼容条件已验证，`qianwen-chat-sse/1` 已接入统一回答读取接口；具体范围与前提以实测记录为准。
+
+## 11. 千问：按失败层次定位，再验证完整回答
+
+2026-10-17，千问 `com.aliyun.tongyi` 7.4.7.3058、非 Root Android 16 ARM64。已完成本地测试版快速文本流采集、UI 核对、`qianwen-chat-sse/1` 接入及手机已有会话 ADB 导出验证；逐轮数字及支持前提见 [千问实测](../QIANWEN-CAPTURE-TEST.md)。
+
+### 排查顺序与分层证据
+
+| 层次 | 实测现象 | 项目经验 |
+| --- | --- | --- |
+| 抓包器是否尝试解密 | 原版三轮均正常回复，但无当前问题明文；后两轮各有 74 条 ECH 透传 | 先查连接记录和 `LocalProxy` 决策。`ClientHelloReader` 发现 `0xfe0d` 就置 `ech=true`，只能证明工具选择透传，不能证明服务器接受了真实 ECH 或目标拒绝 CA |
+| 传输回退 | 阻止 UDP443 的原版轮仍无聊天 SSE；其他接口有证书拒绝 | UDP443 是独立对照变量，不能直接沿用豆包的成功条件；按当前聊天连接定位错误，不用其他域名的错误总数代替 |
+| 重签名后的启动 | 仅改 CA XML、仅重签名、仅兼容 Java 签名元数据均在登录附近退出 | 先解决自包原始 APK 只读视图兼容，确认可启动及登录，再测网络。该私有原始 APK 是运行输入，清理时保留 |
+| 原生栈的证书信任 | UNet 原入口加载 CA 后 Java 验证成功，原生层仍报 `ERR_UNET_FATAL_CERT_VERIFY_ERROR` | 检查原生公有根策略。九个精确聊天域名选择现有本地 CA 策略后证书拒绝归零；保留链、有效期及域名验证，加载 helper 本身不代表整条 TLS 链成功 |
+| 实体是否可读 | 200 SSE 的实体经导出表示及压缩处理后可读 | 区分 HAR Base64、gzip 与应用正文加密。成功千问样本无需豆包的额外正文加密开关，不跨平台照搬补丁 |
+| 回答语义 | `multi_load/iframe` 初始内容后跟 `add /content`；workflow 最终快照为空来源数组 | 此处 `add` 表示追加，保留初始文本；来源独立累积，空快照不清空先前文档。控制信息、按钮元数据及遥测不拼入答案 |
+
+本地抓包探针仅在目标集合恰为千问且命中九个枚举域名时尝试解密；标准抓包源码仍保留 ECH 透传。目标测试版同时依赖版本锁定的启动兼容与 UNet 策略实验。普通 Release 包含回答解码器，不包含这些私有实验条件，单独安装普通包不等于能复现实时抓包。
+
+### 完成标准与易漏细节
+
+1. **关联当前请求**：用户发送测试问题，定位 `POST https://chat2.qianwen.com/api/v1/chat`，核对当前 `messages`、请求/会话身份及从 0 连续的 `resid`；历史查询和启动接口不替代实时样本。
+2. **核对完整结束**：文本与出现过的 workflow 状态结束，收到 `complete` 且 `sse_end="1"`，错误码/审核码/断连信号正常，HTTP 生命周期结束、正文未截断、无待完成 SSE 帧。未知模式、事件或补丁不宣称完整。
+3. **分别比较原文和界面**：原始答案保留 Markdown 与交互占位；UI 比较另列按钮替换、分隔线及排版字符处理。参考文档只表示取得 URL，不保证逐句引用或穷尽。推理及其他模式未验证。
+4. **分别记录验证层次**：实时采集及 UI 核对通过后，用保存证据离线回放，再从手机已有会话读取。已验证 10 事件、192 码点、7 来源，ADB 返回 `unique_complete`，问题、答案和来源 URL 精确一致；解析接入后的设备读取未另发新问题。
+
+构建还遇到两个具体边界：原 DEX 接近 65536 个 method ID 时，helper 需独立 DEX，并校验原 DEX 的规范化撤销差异；UNet 入口类非 public，直接调用曾触发 `IllegalAccessError`，修正访问方式后再验证启动。签名、16 KiB 对齐、安装、启动、TLS 和真实回答分别验收。
+
+Windows 导出另有终端代码页陷阱：Python 对象读取正常，默认 stdout 经 PowerShell 重定向却可能损坏中文。使用 `python -X utf8`，或直接将返回对象以 UTF-8 写入文件，再比较文本；不能把终端编码损坏当成网络丢字。结束时保留原 CA、signer、登录、历史及运行依赖，停止 VPN，并恢复临时开关。
+
+## 12. DeepSeek：先验证最小 CA 配置改动
+
+2026-10-17，DeepSeek `com.deepseek.chat` 2.6.2（281）完成三轮对照，见 [实测记录](../DEEPSEEK-CAPTURE-TEST.md)。原版透传正常，开启解密后提示网络异常，主域名在目标应用侧握手返回 CERTIFICATE_UNKNOWN，没有 HTTP 明文。此证据定位到客户端 TLS 信任障碍，不能据此断言存在额外 pinning。
+
+原版正式构建的信任配置只有 system，user 仅在 debug-overrides。经用户授权替换并重新登录，本地测试包只增加 DeepSeek 域名的 system+user 信任，即取得 `POST https://chat.deepseek.com/api/v0/chat/completion` 的完整 HTTP/2 SSE；无需复用豆包原生库补丁或千问 ECH 探针。UDP443 阻止保持关闭。第三方域名仍拒绝 CA，应分别记录，不能用全局错误总数替代聊天链路结果。
+
+这条样本有 36 个事件：初始 RESPONSE fragment 的 2 码点加 27 次 APPEND，重建 56 码点答案，与 UI 和同消息历史最终结果逐字一致。仅含 v 的 patch 沿用先前路径与操作；不能丢弃初始文本，也不能将 BATCH 元数据、标题或 TTS 事件当答案。完成同时检查 response/status=FINISHED、close/auto_resume=false、HTTP COMPLETE 及未截断正文。本次只验证未触发搜索的文本回答。`deepseek-chat-sse/1` 已接入平台目录和统一结果接口；13 项合成测试通过，真实样本回放得到 complete、36 事件、56 码点，与原始答案逐字一致。实际搜索、深度思考和未验证补丁返回 unsupported。
+
+手机随后以原 signer 覆盖更新抓包工具，保留千问实验条件；已有 DeepSeek 会话经真实 ADB 接口返回 unique_complete，答案与实时 SSE 原文精确一致。未另发问题，结束后恢复 ADB 导出关闭并核对拒绝读取，VPN 保持停止。
+
+本轮可复用的判断顺序：先以透传正常建立基线，再单独开启解密定位两侧 TLS；根据实际网络配置先试最小 CA 改动；取得本轮问题对应的实时流后再分析 patch 语义；最后独立核对 UI、终止、正文完整性及结果接口。第三方 SDK 的证书错误与聊天链路分别统计。智能搜索开关为开不等于发生检索，本轮 search_triggered=false，不能宣称已经支持搜索来源。

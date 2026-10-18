@@ -11,9 +11,10 @@ data class LlmPlatform(
 object PlatformCatalog {
     val platforms: List<LlmPlatform> = listOf(
         LlmPlatform("yuanbao", "元宝", setOf("com.tencent.hunyuan.app.chat"), "verified_sample"),
-        LlmPlatform("doubao", "豆包", setOf("com.larus.nova"), "discovery"),
+        LlmPlatform("doubao", "豆包", setOf("com.larus.nova"), "verified_sample"),
+        LlmPlatform("deepseek", "DeepSeek", setOf("com.deepseek.chat"), "verified_sample"),
         LlmPlatform("kimi", "Kimi", setOf("com.moonshot.kimichat"), "discovery"),
-        LlmPlatform("qianwen", "千问", setOf("com.alibaba.tongyi"), "discovery"),
+        LlmPlatform("qianwen", "千问", setOf("com.aliyun.tongyi"), "verified_sample"),
         LlmPlatform("wenxin", "文心一言", setOf("com.baidu.newapp"), "discovery"),
     )
 

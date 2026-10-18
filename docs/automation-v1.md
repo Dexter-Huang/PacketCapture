@@ -50,12 +50,21 @@
 Python 3.10+，仅标准库。在项目根目录运行，设备序列号必填：
 
 ```powershell
-python clients/python/packetcapture_client.py --serial YOUR_SERIAL status
-python clients/python/packetcapture_client.py --serial YOUR_SERIAL sessions
-python clients/python/packetcapture_client.py --serial YOUR_SERIAL answers --session SESSION_ID --provider yuanbao --exchange-id EXCHANGE_ID --require-complete
+python -X utf8 clients/python/packetcapture_client.py --serial YOUR_SERIAL status
+python -X utf8 clients/python/packetcapture_client.py --serial YOUR_SERIAL sessions
+python -X utf8 clients/python/packetcapture_client.py --serial YOUR_SERIAL answers --session SESSION_ID --provider yuanbao --exchange-id EXCHANGE_ID --require-complete
+python -X utf8 clients/python/packetcapture_client.py --serial YOUR_SERIAL answers --session SESSION_ID --provider doubao --exchange-id EXCHANGE_ID --require-complete
 ```
 
+千问也使用同一接口，例如 `answers --session SESSION_ID --provider qianwen --exchange-id EXCHANGE_ID --require-complete`。`decoder=qianwen-chat-sse/1` 目前验证 7.4.7.3058 本地测试版快速文本模式；答案保留原始 Markdown 和交互占位，来源单独输出，推理为空。参考资料 `collected` 不表示逐句引用映射；前提见 [千问实测](../QIANWEN-CAPTURE-TEST.md)。
+
+DeepSeek 使用同一 v1 DTO、精确筛选和完成规则，provider 为 `deepseek`，decoder 为 `deepseek-chat-sse/1`。已验证 2.6.2 本地 CA 测试版默认文本、未实际触发搜索的回答；来源为空、推理为空，其他模式返回 unsupported。命令可使用 `answers --session SESSION_ID --provider deepseek --exchange-id EXCHANGE_ID --require-complete`。TLS 前提与实测范围见 [DeepSeek 实测](../DEEPSEEK-CAPTURE-TEST.md)。
+
+Windows 重定向结果时使用上面的 `python -X utf8`，避免本机代码页改变中文；程序内读取可直接将返回对象以 UTF-8 写入文件。
+
 支持 `--prompt-file`（准确 UTF-8 文件，不删除结尾换行）与 `--started-after`。输出重定向请使用 UTF-8。界面的当前会话和历史会话也支持「回答 JSON」导出，不需开启 ADB。
+
+豆包使用同一 v1 DTO 和筛选规则，`decoder=doubao-chat-sse/1`。当前只验证 15.0.0 本地测试版的普通文本流；推荐视频不当作引用，`searchSources=[]`、`referenceCaptureStatus=not_collected`，推理为空。已完成 TLS 解密但实体仍加密时不会输出成功答案。具体前提见 [豆包实测](../DOUBAO-STREAM-TEST.md)。
 
 调用示意：
 
@@ -88,4 +97,8 @@ python -m unittest discover -s clients/python -p 'test_*.py' -v
 
 自动测试覆盖精确筛选、重复候选、完整性、未知协议、远端错误、来源 URL、超过 UI/事件窗口的回答、调用 UID 和客户端命令引用及错误处理。真机安装、ADB 权限、设置开关和各平台证书信任另外验证；构建成功不代表这些已经通过。
 
-2026-10-17 验证：81 项 JVM 测试、5 项 Python 测试通过，Release APK 与 Android 测试 APK 构建成功。用本机已有元宝 SSE 回放得到 383 个事件、1393 个 Unicode 码点、15 个来源；拼接文本与此前保存的回答一致（比较时统一文本文件换行）。真实报文和回放脚本留在被忽略的 `artifacts/`，不提交。新版本 ADB 接口及设置 UI 尚未在手机上执行验证。
+2026-10-17 验证：千问接入后 106 项仓库 JVM 测试、5 项 Python 测试通过；本地定向 ECH 探针另有 1 项测试。普通 Release 与保留定向探针的本地 Release 均构建通过。真实报文离线回放三平台均 `complete`、无诊断：元宝 383 事件/1393 码点/15 来源，豆包 56 事件/385 码点，千问 10 事件/192 码点/7 来源。千问答案与独立保存的协议状态逐字相同，来源 URL 顺序一致。真实报文和回放脚本只在忽略的 `artifacts/`。
+
+千问接入阶段，手机用原 signer 覆盖安装含三个解码器的 `1.1.0-qw-ech-probe`（code 8），保留千问抓包所需的本地定向 ECH 探针。对已保存的千问成功会话通过真实 ADB 接口得到 `unique_complete`，问题、答案及 7 个来源 URL 精确核对通过；精确问题筛选、附加空格不匹配、导出开关开启/关闭与关闭后拒绝读取均实测。未发送新问题；该验证证明设备上已有证据的解析/读取，不扩展到其他聊天模式。已恢复 ADB 导出关闭、VPN 停止，原 CA、历史及目标应用登录保留。标准构建不包含私有 ECH 探针，千问实时抓包仍须满足实测记录中的本地条件。
+
+DeepSeek 接入后新增 13 项合成测试，标准构建的 119 项仓库 JVM 测试与 5 项 Python 测试通过；标准 Release/Android 测试 APK 构建通过，保留千问探针的本地 Release 构建与额外范围测试也通过。四平台真实样本离线回放均 complete、无诊断。手机同原 signer 更新为含四个解码器的构建，读取已有 DeepSeek 会话得到 unique_complete、deepseek-chat-sse/1、36 事件，答案与实时 SSE 原文逐字一致；平台目录识别 deepseek。未另发新问题，ADB 导出已恢复关闭并核对拒绝读取，VPN 停止。

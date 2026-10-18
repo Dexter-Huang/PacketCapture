@@ -7,7 +7,9 @@ import kotlinx.coroutines.withContext
 
 /** The only entry point for UI/automation: selection, decoding and quality gates live here. */
 class AnswerReader(private val repository: CaptureRepository, private val bodies: BodyStore) {
-    private val decoders: Map<String, AnswerDecoder> = mapOf("yuanbao" to YuanbaoDecoder())
+    private val decoders: Map<String, AnswerDecoder> = mapOf(
+        "yuanbao" to YuanbaoDecoder(), "doubao" to DoubaoDecoder(), "qianwen" to QianwenDecoder(),
+        "deepseek" to DeepseekDecoder())
 
     suspend fun read(sessionId: String, selector: AnswerSelector = AnswerSelector()): AnswerBatch = withContext(Dispatchers.IO) {
         val session = repository.session(sessionId) ?: error("Session not found")

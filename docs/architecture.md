@@ -28,9 +28,10 @@ flowchart LR
 | ID | 平台 | 当前状态 |
 | --- | --- | --- |
 | `yuanbao` | 元宝 | `verified_sample`：2.88.0 原生 `/api/chat/` HTTP SSE 样本，目标应用需信任本机 CA |
-| `doubao` | 豆包 | `discovery`：候选包已识别，解密与协议待验证 |
+| `deepseek` | DeepSeek | `verified_sample`：2.6.2 本地 CA 测试版 `/api/v0/chat/completion` 默认文本 SSE；未触发搜索、未启用深度思考，见 [实测记录](../DEEPSEEK-CAPTURE-TEST.md) |
+| `doubao` | 豆包 | `verified_sample`：15.0.0 本地测试版 `/chat/completion` SSE；需原生 CA 信任、关闭额外正文加密及 UDP443 阻止以测试 TCP 回退 |
 | `kimi` | Kimi | `discovery`：包名、解密与协议待目标手机验证 |
-| `qianwen` | 千问 | `discovery`：包名、解密与协议待目标手机验证 |
+| `qianwen` | 千问 | `verified_sample`：7.4.7.3058 本地测试版、`com.aliyun.tongyi`、快速文本模式 `/api/v1/chat` SSE；需本地 CA 信任与定向 ECH 实验条件，见 [实测记录](../QIANWEN-CAPTURE-TEST.md) |
 | `wenxin` | 文心一言 | `discovery`：包名、解密与协议待目标手机验证 |
 
 `PlatformCatalog` 的包名是候选值，需与手机安装包核对；未命中时仍可用通用应用选择器抓包。手动选择其他包名不会自动获得平台身份，渠道包需要更新目录并验证归属。网络转发成功、HTTP 200 或能看到打字动画均不能证明已经得到完整回答。
@@ -43,7 +44,15 @@ flowchart LR
 4. 用脱敏或合成样本验证完整、错误、截断、重连、Unicode、协议变更和来源，再真机核对答案及终止状态。
 5. 更新目录支持状态和已验证版本；禁止提交带登录态的 HAR 或私人对话。
 
-目前只有元宝有实际解码器。未知平台 SSE 返回 `unsupported`，不输出伪造答案；未知归属不猜测。非 SSE 暂不进入回答结果，原始 HTTP/TCP/UDP 证据仍能手动导出。未知事件拒绝宣称完整，避免协议升级静默污染监测结果。`reasoning` 目前为空，后续按协议分开提取。来源 `collected` 仅表示取得 URL，不保证穷尽或逐句关联。
+目前有元宝、豆包、千问和 DeepSeek 解码器。未知平台 SSE 返回 `unsupported`，不输出伪造答案；未知归属不猜测。非 SSE 暂不进入回答结果，原始 HTTP/TCP/UDP 证据仍能手动导出。未知事件拒绝宣称完整，避免协议升级静默污染监测结果。`reasoning` 目前为空，后续按协议分开提取。来源 `collected` 仅表示取得 URL，不保证穷尽或逐句关联。
+
+`DoubaoDecoder`（`doubao-chat-sse/1`）只匹配 `POST https://api5-normal-gl.doubao.com/chat/completion`。问题取当前 `messages` 的文本块，不取 `option.history_messages`；多条当前消息返回 `unsupported`。答案按 `STREAM_MSG_NOTIFY` 初始文本、`STREAM_CHUNK` 文本追加和 `CHUNK_DELTA` 顺序重建，用户回显、心跳、扩展字段不计入答案。完成要求文本块结束、匹配的消息身份、顺序为 1/2/3 的 `SSE_REPLY_END`，并通过正文与传输完整性检查。实测推荐视频块不等于搜索引用，故 `searchSources=[]`、`referenceCaptureStatus=not_collected`；其他模式、域名、替换块及推理/搜索协议待验证。
+
+`QianwenDecoder`（`qianwen-chat-sse/1`）仅匹配 `POST https://chat2.qianwen.com/api/v1/chat`，限快速文本 `v2`/增量策略 1/JSON patch。问题取当前单条 `messages[].content`；只将 `multi_load/iframe` 初始内容与 `add /content` 按顺序追加。`signal/post`、过程栏、交互控件元数据及遥测不进入答案；原始占位保留。来源来自 workflow 的 `bar_ref_source_inline` 文档，按有效 HTTP(S) URL 去重，后续空快照不会清空已有来源；不推断引用索引。完成需匹配请求/会话身份、从 0 连续的 `resid`、无错误/断连信号、文本及出现过的 workflow 结束、`complete`/`sse_end="1"`，并通过通用正文与传输检查。其他模式、域名、快照替换及推理协议待真实样本验证。
+
+`DeepseekDecoder`（`deepseek-chat-sse/1`）限定 `POST https://chat.deepseek.com/api/v0/chat/completion` 与 `com.deepseek.chat` 归属。问题取当前 `prompt`；默认文本模式保留初始 RESPONSE fragment 和沿用 p/o 的 APPEND 增量，BATCH 元数据、会话、标题及 TTS 控制事件不计入答案。完成需 ready/初始响应的消息身份匹配、FINISHED、close 且 auto_resume=false，以及完整正文与传输。实际搜索、深度思考、附件、多 fragment、替换及恢复流返回 unsupported；来源为空、推理为空，其他版本待真实样本验证。
+
+TLS 明文和可读实体是两个条件；豆包曾在 HTTPS 内继续加密正文。成功明文样本的响应仍带 `x-tt-e-b: 1`，解码器结合正文是否可解析判断，不能仅凭头字段宣布加密或成功。版本与证据见 [豆包实测](../DOUBAO-STREAM-TEST.md)。
 
 ## 后续在本项目加入手机执行功能
 
