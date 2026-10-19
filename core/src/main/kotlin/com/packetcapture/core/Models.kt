@@ -28,7 +28,7 @@ data class CaptureConfig(
     val tlsHostOverrides: Map<String, String> = emptyMap(),
 )
 data class AppSettings(val capture: CaptureConfig = CaptureConfig(), val theme: ThemeMode = ThemeMode.SYSTEM,
-    val adbExportEnabled: Boolean = false)
+    val adbExportEnabled: Boolean = false, val scheduler: SchedulerSettings = SchedulerSettings())
 data class CaptureState(
     val phase: CapturePhase = CapturePhase.IDLE,
     val sessionId: String? = null,
@@ -111,7 +111,7 @@ data class ExchangeFilter(
     val status: Int? = null,
 )
 data class CertificateInfo(val subject: String, val fingerprint: String, val expiresAt: Long)
-data class InstalledApp(val packageName: String, val label: String)
+data class InstalledApp(val packageName: String, val label: String, val versionName: String? = null)
 /** text 用于默认阅读视图；rawText 保留解压后的原始文本，供核对转义和原始 JSON 语法。 */
 data class BodyPreview(val text: String, val binary: Boolean, val limited: Boolean, val note: String? = null,
     val rawText: String? = null)

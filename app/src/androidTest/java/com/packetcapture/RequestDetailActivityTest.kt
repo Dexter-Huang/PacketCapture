@@ -74,6 +74,7 @@ class RequestDetailActivityTest {
                 model.setFilter(filter)
             }
             compose.waitUntil(10000) { model.state.value.ready && model.state.value.requests.size == 25 }
+            compose.onNodeWithText("采集").performClick()
             val rowTag = "request-${exchange.id}"
             compose.onNodeWithTag("capture-list").performScrollToNode(hasTestTag(rowTag))
             val scrollBefore = captureScroll()

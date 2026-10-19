@@ -1,0 +1,192 @@
+package com.packetcapture.ui.workbench
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowForward
+import androidx.compose.material.icons.automirrored.outlined.Assignment
+import androidx.compose.material.icons.outlined.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.packetcapture.core.CapturePhase
+import com.packetcapture.llm.PlatformCatalog
+import com.packetcapture.ui.components.*
+import com.packetcapture.ui.home.CaptureUiState
+
+@Composable internal fun WorkbenchScreen(
+    state: CaptureUiState,
+    settings: () -> Unit,
+    capture: () -> Unit,
+    tasks: () -> Unit,
+    refresh: () -> Unit,
+) {
+    val config = state.settings.scheduler
+    val configured = config.validationError() == null
+    val installed = PlatformCatalog.platforms.count { platform -> state.apps.any { it.packageName in platform.packageCandidates } }
+    LazyColumn(Modifier.fillMaxSize().testTag("workbench-list"), contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        item {
+            Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.primaryContainer) {
+                Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Outlined.PhoneAndroid, null, Modifier.size(28.dp))
+                        Text(config.deviceName.ifBlank { "这台手机" }, Modifier.weight(1f).padding(horizontal = 10.dp),
+                            fontWeight = FontWeight.SemiBold)
+                        StatusLabel("未绑定")
+                    }
+                    Text(if (configured) "接入配置已保存" else "连接 GEO，准备开始监测", fontSize = 24.sp,
+                        lineHeight = 32.sp, fontWeight = FontWeight.Bold)
+                    Text("由 GEO 分配品牌监测任务，手机负责操作应用、采集回答与回传证据。", lineHeight = 22.sp)
+                    Button(onClick = settings, modifier = Modifier.fillMaxWidth()) {
+                        Text(if (configured) "管理接入配置" else "配置 GEO 接入")
+                        Spacer(Modifier.width(8.dp)); Icon(Icons.AutoMirrored.Outlined.ArrowForward, null, Modifier.size(18.dp))
+                    }
+                    Text("自动接单待接入 · 当前不会领取或发送任务", fontSize = 12.sp)
+                }
+            }
+        }
+        item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                SummaryTile("$installed / ${PlatformCatalog.platforms.size}", "已安装平台", Modifier.weight(1f))
+                SummaryTile(config.providers.size.toString(), "计划执行平台", Modifier.weight(1f))
+                SummaryTile("${config.pollIntervalSeconds}s", "计划轮询间隔", Modifier.weight(1f))
+            }
+        }
+        item {
+            SectionTitle("运行准备", "检查设备")
+            Spacer(Modifier.height(8.dp))
+            Panel {
+                ReadinessRow(Icons.Outlined.CloudQueue, "接入配置", if (configured) "配置已保存，尚未绑定设备" else "填写服务地址和设备信息", configured)
+                HorizontalDivider()
+                ReadinessRow(Icons.Outlined.TouchApp, "应用操作", "无障碍执行器待实现", false)
+                HorizontalDivider()
+                val active = state.capture.phase == CapturePhase.CAPTURING
+                ReadinessRow(Icons.Outlined.Sensors, "回答采集", when (state.capture.phase) {
+                    CapturePhase.CAPTURING -> "采集运行中，回答完整性需按任务核对"
+                    CapturePhase.STARTING -> "采集正在启动"
+                    CapturePhase.STOPPING -> "采集正在停止"
+                    CapturePhase.FAILED -> "采集异常，请打开工具检查"
+                    else -> "未启动，可先手动验证采集"
+                }, active)
+                HorizontalDivider()
+                ReadinessRow(Icons.Outlined.VerifiedUser, "HTTPS 信任", "需按平台核对目标应用的证书信任", false)
+                OutlinedButton(onClick = capture, Modifier.fillMaxWidth().padding(top = 12.dp)) { Text("打开采集工具") }
+            }
+        }
+        item {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("平台能力", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                TextButton(onClick = refresh, enabled = state.ready) {
+                    Icon(Icons.Outlined.Refresh, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("刷新")
+                }
+            }
+            Panel {
+                PlatformCatalog.platforms.forEachIndexed { index, platform ->
+                    if (index > 0) HorizontalDivider()
+                    val app = state.apps.firstOrNull { it.packageName in platform.packageCandidates }
+                    Column(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(platform.displayName, Modifier.weight(1f), fontWeight = FontWeight.Medium)
+                            StatusLabel(if (!state.ready) "读取中" else if (app == null) "未找到应用" else "已安装")
+                        }
+                        Muted(if (app == null) "候选包未匹配" else "${app.packageName} · ${app.versionName ?: "版本未知"}")
+                        Muted(if (platform.support == "verified_sample") "回答解析：已有指定版本样本 · 自动操作：待实现"
+                            else "回答解析：待验证 · 自动操作：待实现")
+                        if (platform.id in config.providers) Text("已列入执行计划", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp)
+                    }
+                }
+                Muted("安装状态来自本机应用列表；样本解析通过不代表当前安装版本、登录或自动操作已就绪。")
+            }
+        }
+        item {
+            Panel {
+                SectionTitle("任务动态", "服务端尚未连接")
+                Spacer(Modifier.height(10.dp))
+                Muted("绑定后，在这里查看当前任务、回传情况与需要人工处理的异常。")
+                TextButton(onClick = tasks) { Text("查看任务工作区") }
+            }
+        }
+    }
+}
+
+@Composable internal fun TasksScreen(settings: () -> Unit, capture: () -> Unit) {
+    LazyColumn(Modifier.fillMaxSize().testTag("tasks-list"), contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        item {
+            Panel {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.AutoMirrored.Outlined.Assignment, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.primary)
+                    Column(Modifier.padding(start = 12.dp)) {
+                        Text("等待接入任务服务", fontWeight = FontWeight.SemiBold)
+                        Muted("当前没有 GEO 任务数据")
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                Text("接入后查看这台手机的当前任务、待回传结果、执行记录与人工处理事项。", lineHeight = 24.sp)
+                Button(onClick = settings, Modifier.fillMaxWidth().padding(top = 16.dp)) { Text("配置接入") }
+            }
+        }
+        item {
+            SectionTitle("单台手机，一次执行一个任务", "计划执行流程")
+            Spacer(Modifier.height(8.dp))
+            Panel {
+                FlowStep("01", "领取任务", "手机轮询 GEO，领取适配本机平台能力的任务租约。")
+                FlowStep("02", "准备并发送", "检查应用与采集状态，保存任务身份和发送边界后单次提问。")
+                FlowStep("03", "等待完整回答", "关联本次请求，采集回答、引用及证据；持续报告任务心跳。")
+                FlowStep("04", "持久化并回传", "先保存结果，再幂等上传；服务端确认后才领取下一条任务。")
+            }
+        }
+        item {
+            Panel {
+                Text("中断后如何继续", fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(8.dp))
+                Muted("断网时保留结果等待回传；已经发送的问题只续采。无法确认是否发送、回答关联不唯一或租约失效时，转人工处理，避免重复提问。")
+            }
+        }
+        item { OutlinedButton(onClick = capture, Modifier.fillMaxWidth()) { Text("先验证手动采集") } }
+    }
+}
+
+@Composable private fun SummaryTile(value: String, label: String, modifier: Modifier) {
+    Surface(modifier, shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface) {
+        Column(Modifier.padding(vertical = 16.dp, horizontal = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(value, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(4.dp)); Muted(label)
+        }
+    }
+}
+
+@Composable private fun SectionTitle(title: String, subtitle: String) {
+    Column { Text(title, fontWeight = FontWeight.SemiBold); Muted(subtitle) }
+}
+
+@Composable private fun StatusLabel(text: String) {
+    Text(text, Modifier.background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(6.dp))
+        .padding(horizontal = 8.dp, vertical = 4.dp), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+}
+
+@Composable private fun ReadinessRow(icon: ImageVector, title: String, detail: String, ready: Boolean) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+        Column(Modifier.weight(1f).padding(horizontal = 12.dp)) { Text(title, fontWeight = FontWeight.Medium); Muted(detail) }
+        Icon(if (ready) Icons.Outlined.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
+            if (ready) "已满足此项" else "待就绪", Modifier.size(20.dp),
+            tint = if (ready) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline)
+    }
+}
+
+@Composable private fun FlowStep(number: String, title: String, description: String) {
+    Row(Modifier.padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(number, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+        Column { Text(title, fontWeight = FontWeight.Medium); Muted(description) }
+    }
+}

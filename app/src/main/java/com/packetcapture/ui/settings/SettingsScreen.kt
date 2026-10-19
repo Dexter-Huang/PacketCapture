@@ -21,6 +21,7 @@ import com.packetcapture.BuildConfig
 import com.packetcapture.core.*
 import com.packetcapture.llm.PlatformCatalog
 import com.packetcapture.ui.components.*
+import com.packetcapture.ui.workbench.SchedulerSettingsPanel
 
 @Composable internal fun SettingsScreen(
     settings: AppSettings,
@@ -39,7 +40,8 @@ import com.packetcapture.ui.components.*
     var confirmClearStorage by rememberSaveable { mutableStateOf(false) }
     var editTlsHosts by rememberSaveable { mutableStateOf(false) }
     var platformPicker by rememberSaveable { mutableStateOf(false) }
-    LazyColumn(Modifier.fillMaxSize().testTag("settings-list"), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    LazyColumn(Modifier.fillMaxSize().imePadding().testTag("settings-list"), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        item { SchedulerSettingsPanel(settings.scheduler) { save(settings.copy(scheduler = it)) } }
         item { Panel {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Outlined.WorkspacePremium, null, Modifier.size(44.dp), tint = MaterialTheme.colorScheme.primary)

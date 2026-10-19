@@ -35,7 +35,11 @@ class MainActivity : ComponentActivity() {
                 { container.ready.await() }, { withContext(Dispatchers.IO) {
                     packageManager.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0)
                         .filter { it.activityInfo.packageName != packageName }
-                        .map { InstalledApp(it.activityInfo.packageName, it.loadLabel(packageManager).toString()) }
+                        .map {
+                            val pkg = it.activityInfo.packageName
+                            InstalledApp(pkg, it.loadLabel(packageManager).toString(),
+                                runCatching { packageManager.getPackageInfo(pkg, 0).versionName }.getOrNull())
+                        }
                         .distinctBy { it.packageName }.sortedBy { it.label.lowercase() }
                 } }) as T
         })[CaptureViewModel::class.java]
@@ -52,9 +56,14 @@ class MainActivity : ComponentActivity() {
                     historySearch = model::searchHistory, certificate = { model.certificate() },
                     export = documents::launch,
                     refreshStorage = { model.refreshStorage() }, clearStorage = model::clearStorage, clearMessage = { model.message(null) },
+                    refreshEnvironment = { model.refreshEnvironment() },
                 ))
             }
         }
+    }
+    override fun onResume() {
+        super.onResume()
+        if (::model.isInitialized) model.refreshEnvironment()
     }
     private fun requestVpn() {
         val intent = VpnService.prepare(this)

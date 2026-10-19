@@ -60,6 +60,11 @@ class CaptureViewModel(
     fun searchHistory(text: String) { historyQuery.value = text }
     fun saveSettings(settings: AppSettings) = action { preferences.update(settings) }
     fun refreshStorage() = action { mutable.update { it.copy(usedBytes = bodies.usedBytes()) } }
+    fun refreshEnvironment() = action {
+        awaitReady()
+        val apps = loadApps()
+        mutable.update { it.copy(apps = apps, usedBytes = bodies.usedBytes()) }
+    }
     fun certificate() = action { val info = certificates.ensureCertificate(); mutable.update { it.copy(certificate = info) } }
     fun clearStorage() {
         if (!state.value.ready || state.value.clearingStorage) return
