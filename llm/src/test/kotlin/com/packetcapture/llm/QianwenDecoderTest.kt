@@ -67,6 +67,26 @@ class QianwenDecoderTest {
         assertTrue(noSources.searchSources.isEmpty())
     }
 
+    @Test fun videoRecommendationsRemainMetadataAndNeverBecomeAnswerOrReferences() {
+        val video = """{"type":"video_note_list","html":"","source_seq":"video_note_list_1","content":{"intro":"","list":[{"title":"合成视频标题不能拼进回答","url":"https://example.test/video","intro":"视频说明","track_info":{"content":"不是回答"}}]}}"""
+        val items = messages.toMutableList().apply {
+            set(8, patch("multi_load/iframe", """{"op":"add","path":"/meta_data/multi_load/-","value":$video},${this@QianwenDecoderTest.add("[[video_note_list_1]]")},$finish"""))
+        }
+        val result = decode(stream(items))
+        assertEquals("complete", result.status)
+        assertEquals("开头🌈\n第二行保留 Markdown **文本**[[video_note_list_1]]", result.answer)
+        assertEquals(2, result.searchSources.size)
+        assertFalse(result.searchSources.any { it.url.endsWith("/video") })
+        assertFalse(result.answer.contains("合成视频"))
+        for (bad in listOf(video.replace("\"list\":[", "\"list\":[1,"),
+            video.replace("\"html\":\"\"", "\"html\":\"<script>unknown</script>\""),
+            video.replace("\"intro\":\"\",", ""), video.replace("video_note_list\"", "new_video_type\""))) {
+            assertEquals("unsupported", decode(stream(items.toMutableList().apply {
+                set(8, patch("multi_load/iframe", """{"op":"add","path":"/meta_data/multi_load/-","value":$bad},$finish"""))
+            })).status)
+        }
+    }
+
     @Test fun onlyObservedEndpointAndMethodMatch() {
         assertTrue(decoder.matches(exchange()))
         assertTrue(decoder.matches(exchange().copy(url = exchange().url + "?synthetic=1")))

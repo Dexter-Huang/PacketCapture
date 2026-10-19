@@ -10,11 +10,11 @@
 
 **Android 8.0+ · 按应用抓包 · HTTP/1.1 / HTTP/2 · HAR / cURL 导出 · 本机 SOCKS5 代理**
 
-新增多平台大模型采集模块：元宝 2.88.0、豆包 15.0.0、千问 7.4.7.3058、DeepSeek 2.6.2 已有实时 SSE 样本及回答解码器，均有目标应用证书信任等测试前提；Kimi、文心一言提供待验证应用预设。支持回答 JSON 导出和默认关闭的只读 ADB 结果接口，供 GEO 品牌监测联调。[模块设计与手机执行规划](docs/architecture.md) · [结果接口与 Python 客户端](docs/automation-v1.md)。
+新增多平台大模型采集模块：元宝 2.88.0、豆包 15.0.0、千问 7.4.7.3058、DeepSeek 2.6.2、文心 5.20.0.11 的 SSE，以及 Kimi 3.1.4 的 Connect JSON 已有实时样本及回答解码器，均有目标应用证书信任等测试前提；文心还依赖私有目标域名 3 秒传输缓冲，普通构建不含该实验条件。支持回答 JSON 导出和默认关闭的只读 ADB 结果接口，供 GEO 品牌监测联调。[模块设计与手机执行规划](docs/architecture.md) · [结果接口与 Python 客户端](docs/automation-v1.md) · [文心实测](WENXIN-CAPTURE-TEST.md) · [Kimi 实测](KIMI-CAPTURE-TEST.md)。
 
 开发排查与验证经验见 [大模型 App 抓包开发经验](docs/capture-development-notes.md)，包含元宝、豆包、千问和 DeepSeek 案例，TLS/QUIC、ECH 透传、原生 CA 策略、额外正文加密及 SSE 解析排查。[豆包实测结果](DOUBAO-STREAM-TEST.md) · [千问实测结果](QIANWEN-CAPTURE-TEST.md) · [DeepSeek 实测结果](DEEPSEEK-CAPTURE-TEST.md)。千问快速文本解析已验证，实时解密仍依赖文档所述本地测试条件。
 
-本分支将首页调整为 **GEO 设备工作台**，底部为「工作台 / 任务 / 采集 / 设置」。支持保存 GEO HTTPS 地址、设备名称、计划轮询间隔及平台意向，展示本机平台安装版本和采集状态。配置保存不会连接服务端；设备绑定、轮询、无障碍提问与结果回传仍待实现。[界面与调度接入设计](docs/android-scheduler.md)。
+本分支将首页调整为 **GEO 设备工作台**，底部为「工作台 / 任务 / 采集 / 设置」。已实现 HTTPS 设备绑定、任务领取、心跳、采集边界和完整回答幂等回传；六平台均有隔离环境端到端完成证据。配置保存不会自动连接服务端。应用内无障碍提问与长期后台执行待实现，当前按任务原文操作目标应用并发送一次。[安卓立即监测入口与验证范围](docs/android-scheduler.md#立即监测入口)。
 
 ## 主要功能
 

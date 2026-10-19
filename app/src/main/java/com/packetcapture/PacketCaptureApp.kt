@@ -23,6 +23,7 @@ class AppContainer(application: Application) {
     val runtime = CaptureRuntime(application, repository, bodies, authority)
     val controller: CaptureController = runtime
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    val scheduler = com.packetcapture.scheduler.AndroidScheduler(application, settings, controller, answers, scope)
     val ready = scope.async { repository.recoverInterrupted() }
 }
 class PacketCaptureApp : Application(), CaptureDependencyProvider {

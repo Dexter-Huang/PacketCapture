@@ -114,7 +114,9 @@ data class CertificateInfo(val subject: String, val fingerprint: String, val exp
 data class InstalledApp(val packageName: String, val label: String, val versionName: String? = null)
 /** text 用于默认阅读视图；rawText 保留解压后的原始文本，供核对转义和原始 JSON 语法。 */
 data class BodyPreview(val text: String, val binary: Boolean, val limited: Boolean, val note: String? = null,
-    val rawText: String? = null)
+    val rawText: String? = null,
+    // 长度前缀流含任意二进制帧头，不能经 UTF-8 字符串往返后再按字节长度解析。
+    val rawBytes: ByteArray? = null)
 data class ExportOptions(val redactCredentials: Boolean = false)
 data class CurlExport(
     val command: String,

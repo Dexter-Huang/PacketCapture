@@ -28,7 +28,7 @@
     "packageName": "com.tencent.hunyuan.app.chat",
     "startedAt": 1792200000000,
     "endedAt": 1792200010000,
-    "decoder": "yuanbao-chat-sse/1",
+    "decoder": "yuanbao-chat-sse/2",
     "prompt": "示例问题",
     "answer": "示例回答",
     "reasoning": "",
@@ -41,7 +41,9 @@
 }
 ```
 
-`selectionStatus` 为 `none`、`ambiguous` 或 `unique_{status}`。仅单条 `unique_complete` 可视作采集成功。`none` 可能表示尚无 SSE、未解密、归属未知或筛选不匹配，应核对原始证据。`complete` 要求已识别结束事件、完整 HTTP 生命周期、未截断可读正文、有效问题、非空回答、无错误及未知事件；其他情况下返回 `incomplete/failed/unsupported`。部分答案用于诊断，不能当作完整结果。
+`selectionStatus` 为 `none`、`ambiguous` 或 `unique_{status}`。仅单条 `unique_complete` 可视作采集成功。`none` 可能表示尚无匹配协议、未解密、归属未知或筛选不匹配，应核对原始证据。`complete` 要求已识别结束事件、完整 HTTP 生命周期、未截断可读正文、有效问题、非空回答、无错误及未知事件；其他情况下返回 `incomplete/failed/unsupported`。部分答案用于诊断，不能当作完整结果。
+
+Kimi 使用相同 v1 URI、DTO 和精确筛选，provider 为 `kimi`、decoder 为 `kimi-chat-connect/1`。3.1.4 本地 CA 测试版新对话的 Connect JSON 文本与独立 `reasoning` 已验证；该模式无来源时为 `not_collected`。结束还要求 Connect done 与结束帧，未知工具流不报告成功。`eventCount` 包含心跳及结束帧；`source=android_capture_sse` 是保留的 v1 兼容标识，不能用它推断实际传输为 SSE。见 [Kimi 实测](../KIMI-CAPTURE-TEST.md)。
 
 不导出 Cookie、Authorization、完整请求头或完整请求体。问题、回答和来源仍是对话数据，按 GEO 数据策略保存。来源 `collected` 仅说明有来源 URL，不代表引用穷尽；无来源记 `not_collected`。HAR 仍通过界面手动导出，可能含原始登录凭据，勿提交 Git。
 
@@ -60,11 +62,17 @@ python -X utf8 clients/python/packetcapture_client.py --serial YOUR_SERIAL answe
 
 DeepSeek 使用同一 v1 DTO、精确筛选和完成规则，provider 为 `deepseek`，decoder 为 `deepseek-chat-sse/1`。已验证 2.6.2 本地 CA 测试版默认文本、未实际触发搜索的回答；来源为空、推理为空，其他模式返回 unsupported。命令可使用 `answers --session SESSION_ID --provider deepseek --exchange-id EXCHANGE_ID --require-complete`。TLS 前提与实测范围见 [DeepSeek 实测](../DEEPSEEK-CAPTURE-TEST.md)。
 
+文心使用同一接口，provider 为 `wenxin`，decoder 为 `wenxin-chat-sse/1`，普通文本回答和显式来源已验证，推理为空。2026-10-20 在 5.20.0.11 本地 CA 测试版及私有目标域名 3 秒交付缓冲条件下取得三份真实 HTTP 完整样本，返回 `unique_complete`；普通构建不含该缓冲。旧提前结束样本仍返回 `unique_failed`、诊断答案/来源及 `transport_incomplete`、`transport_error`、`body_unavailable_or_limited`，`--require-complete` 必须继续拒绝。重复问题仍返回 ambiguous，须绑定 exchangeId；前提和限制见 [文心实测](../WENXIN-CAPTURE-TEST.md)。
+
+2026-10-19 已在手机同 signer 更新后，通过真实 ADB 接口核对已有三条文心记录：问题、答案与 6/8/14 条来源逐项匹配离线结果，精确问题筛选、空格不匹配、重复问题歧义与失败结果拒绝均通过。未发送新问题，结束后关闭导出并核对读取被拒绝，CA 和历史保留。
+
 Windows 重定向结果时使用上面的 `python -X utf8`，避免本机代码页改变中文；程序内读取可直接将返回对象以 UTF-8 写入文件。
 
 支持 `--prompt-file`（准确 UTF-8 文件，不删除结尾换行）与 `--started-after`。输出重定向请使用 UTF-8。界面的当前会话和历史会话也支持「回答 JSON」导出，不需开启 ADB。
 
-豆包使用同一 v1 DTO 和筛选规则，`decoder=doubao-chat-sse/1`。当前只验证 15.0.0 本地测试版的普通文本流；推荐视频不当作引用，`searchSources=[]`、`referenceCaptureStatus=not_collected`，推理为空。已完成 TLS 解密但实体仍加密时不会输出成功答案。具体前提见 [豆包实测](../DOUBAO-STREAM-TEST.md)。
+豆包使用同一 v1 DTO 和筛选规则，`decoder=doubao-chat-sse/2`。已验证 15.0.0 本地测试版普通文本及一次自动搜索回答；明确搜索结果卡片提取 text_card/video_card 的有效 URL、标题及显式 index，按 URL 首次出现去重，记 collected。推荐视频块仍不当搜索来源；无来源样本记 not_collected，推理为空。已完成 TLS 解密但实体仍加密时不会输出成功答案。具体前提见 [豆包实测](../DOUBAO-STREAM-TEST.md)。
+
+元宝当前 `decoder=yuanbao-chat-sse/2`，支持已验证的标注快照，保留原始正文及标注占位，未知结构或可见正文变化仍拒绝完成。2026-10-19 至 20 日三个平台的 GEO 链路范围见 [手机调度记录](android-scheduler.md#验证记录2026-10-20)。
 
 调用示意：
 

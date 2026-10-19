@@ -33,7 +33,7 @@ data class CaptureActions(
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable fun CaptureApp(state: CaptureUiState, actions: CaptureActions) {
+@Composable fun CaptureApp(state: CaptureUiState, actions: CaptureActions, scheduler: com.packetcapture.scheduler.AndroidScheduler? = null) {
     var page by rememberSaveable { mutableIntStateOf(0) }
     var captureHistory by rememberSaveable { mutableStateOf(false) }
     var appPicker by remember { mutableStateOf(false) }
@@ -55,8 +55,8 @@ data class CaptureActions(
         Box(Modifier.fillMaxSize().padding(padding)) {
             when (page) {
                 0 -> WorkbenchScreen(state, { page = 3 }, { captureHistory = false; page = 2 },
-                    { page = 1 }, actions.refreshEnvironment)
-                1 -> TasksScreen({ page = 3 }, { captureHistory = false; page = 2 })
+                    { page = 1 }, actions.refreshEnvironment, scheduler)
+                1 -> TasksScreen({ page = 3 }, { captureHistory = false; page = 2 }, scheduler, state.settings.scheduler.serverUrl)
                 2 -> Column(Modifier.fillMaxSize()) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                         FilterChip(!captureHistory, { captureHistory = false }, label = { Text("实时采集") })

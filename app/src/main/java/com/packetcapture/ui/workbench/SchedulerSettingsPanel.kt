@@ -30,7 +30,7 @@ import com.packetcapture.ui.components.Panel
     val error = draft.validationError()
     Panel {
         Text("GEO 调度接入", fontWeight = FontWeight.Bold)
-        Muted("保存设备接入计划。设备绑定、自动领取及回传服务尚未接入。")
+        Muted("保存接入配置后，在任务页验证设备凭据、领取任务和回传回答。")
         Spacer(Modifier.height(12.dp))
         OutlinedTextField(server, { server = it }, Modifier.fillMaxWidth().testTag("geo-server"),
             label = { Text("GEO 服务地址") }, placeholder = { Text("https://geo.example.com") },
@@ -42,7 +42,7 @@ import com.packetcapture.ui.components.Panel
         OutlinedTextField(interval, { interval = it }, Modifier.fillMaxWidth().testTag("geo-poll-interval"),
             label = { Text("计划轮询间隔（秒）") }, singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            supportingText = { Text("10–300 秒；服务端接入后生效") })
+            supportingText = { Text("空闲轮询 10–300 秒；有任务时心跳间隔最多 60 秒") })
         Spacer(Modifier.height(8.dp))
         Text("计划执行平台", fontWeight = FontWeight.Medium)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -52,7 +52,7 @@ import com.packetcapture.ui.components.Panel
                 }, label = { Text(platform.displayName) })
             }
         }
-        Muted("平台选择仅保存执行意向；正式接单还需验证对应版本、登录、操作和采集能力。")
+        Muted("接单需目标应用已安装、选中 HTTPS 采集且有完整回答样本；问题目前由你发送一次。")
         Spacer(Modifier.height(12.dp))
         if (changed && error != null) Text(error, color = MaterialTheme.colorScheme.error)
         Button(onClick = { save(draft) }, enabled = changed && error == null,

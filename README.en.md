@@ -12,9 +12,11 @@ Packet Capture uses Android `VpnService` to capture traffic from selected apps w
 
 ## Features
 
-The new `llm` JVM module normalizes captured answers independently of the VPN transport. Yuanbao 2.88.0, Doubao 15.0.0, Qianwen 7.4.7.3058 and DeepSeek 2.6.2 have verified live SSE samples and answer decoders, subject to target-app trust and other test conditions. Kimi and Wenxin remain discovery profiles. JSON answer exports and an opt-in, read-only ADB bridge support GEO integration. See [architecture](docs/architecture.md) and [v1 interface / Python client](docs/automation-v1.md) (Chinese).
+The `llm` JVM module normalizes captured answers independently of the VPN transport. Yuanbao 2.88.0, Doubao 15.0.0, Qianwen 7.4.7.3058, DeepSeek 2.6.2 and Wenxin 5.20.0.11 have verified live SSE samples; Kimi 3.1.4 has a Connect JSON decoder with separate reasoning. All require the documented target-app trust and test conditions. Wenxin also requires a private, target-scoped 3-second delivery buffer; ordinary builds do not include it. JSON answer exports and an opt-in, read-only ADB bridge support GEO integration. See [architecture](docs/architecture.md), [v1 interface / Python client](docs/automation-v1.md), [Wenxin tests](WENXIN-CAPTURE-TEST.md), and [Kimi tests](KIMI-CAPTURE-TEST.md) (Chinese).
 
 See [capture development notes](docs/capture-development-notes.md) (Chinese) for the Yuanbao, Doubao, Qianwen and DeepSeek investigations: TLS/QUIC, ECH passthrough, native CA policies, application-payload encryption and SSE parsing. [Doubao test results](DOUBAO-STREAM-TEST.md) · [Qianwen test results](QIANWEN-CAPTURE-TEST.md) · [DeepSeek test results](DEEPSEEK-CAPTURE-TEST.md) (Chinese). Qianwen quick-text parsing is verified; live decryption still requires the documented local test conditions.
+
+The GEO device workbench supports HTTPS binding, task claims, lease heartbeats, capture boundaries and idempotent result uploads. All six platforms have completed the Android monitoring flow in the isolated test environment under their documented conditions. Prompt entry remains an operator action; in-app accessibility automation and unattended background execution are pending. See [Android immediate monitoring](docs/android-scheduler.md#立即监测入口) (Chinese).
 
 | Feature | Description |
 | --- | --- |

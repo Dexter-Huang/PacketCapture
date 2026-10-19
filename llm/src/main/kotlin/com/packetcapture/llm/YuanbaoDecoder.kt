@@ -7,7 +7,7 @@ import java.net.URI
 
 /** Validated against the native 2.88.0 /api/chat/ SSE capture; not the history endpoint. */
 internal class YuanbaoDecoder : AnswerDecoder {
-    override val id = "yuanbao-chat-sse/1"
+    override val id = "yuanbao-chat-sse/2"
 
     override fun matches(exchange: HttpExchange): Boolean = runCatching {
         val uri = URI(exchange.url)
@@ -59,6 +59,7 @@ internal class YuanbaoDecoder : AnswerDecoder {
                         if (valid) sources[url] = SearchSource(doc.string("title").orEmpty(), url, doc.int("index"))
                     }
                 }
+                "mark" -> if (!isMatchingAnnotation(obj, text.toString())) unknown = true
                 "step", "speech_type", "hint_v2_tip" -> Unit
                 else -> unknown = true
             }
@@ -89,6 +90,22 @@ internal class YuanbaoDecoder : AnswerDecoder {
     private fun json(text: String): JsonObject? = runCatching {
         JsonParser.parseString(text).takeIf { it.isJsonObject }?.asJsonObject
     }.getOrNull()
+
+    // Observed enrichment snapshot: it may annotate already streamed text, never replace it.
+    // Unknown shapes or visible text changes must remain unsupported.
+    private fun isMatchingAnnotation(obj: JsonObject, answer: String): Boolean {
+        if (obj.keySet() != setOf("type", "mark")) return false
+        val mark = obj.get("mark")?.takeIf { it.isJsonObject }?.asJsonObject ?: return false
+        if (mark.keySet() != setOf("mark_id", "content", "mark_start", "mark_end")) return false
+        val id = mark.get("mark_id")?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }
+            ?.toString()?.toIntOrNull()?.takeIf { it > 0 } ?: return false
+        val end = "[](@mark_underline=$id)"
+        val content = mark.string("content") ?: return false
+        if (mark.string("mark_start") != "mark_begin" || mark.string("mark_end") != end ||
+            !answer.contains(end) || !content.endsWith(end)) return false
+        val annotation = Regex("\\[\\]\\(@(?:replace|mark_underline)=[1-9][0-9]*\\)")
+        return annotation.replace(content, "") == annotation.replace(answer, "")
+    }
 
     private fun JsonObject.string(key: String): String? = get(key)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString
     private fun JsonObject.int(key: String): Int? = runCatching { get(key)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asInt }.getOrNull()

@@ -10,6 +10,7 @@ import androidx.compose.material.icons.automirrored.outlined.Assignment
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -28,7 +29,9 @@ import com.packetcapture.ui.home.CaptureUiState
     capture: () -> Unit,
     tasks: () -> Unit,
     refresh: () -> Unit,
+    scheduler: com.packetcapture.scheduler.AndroidScheduler? = null,
 ) {
+    val scheduling = scheduler?.state?.collectAsStateWithLifecycle()?.value
     val config = state.settings.scheduler
     val configured = config.validationError() == null
     val installed = PlatformCatalog.platforms.count { platform -> state.apps.any { it.packageName in platform.packageCandidates } }
@@ -41,16 +44,17 @@ import com.packetcapture.ui.home.CaptureUiState
                         Icon(Icons.Outlined.PhoneAndroid, null, Modifier.size(28.dp))
                         Text(config.deviceName.ifBlank { "这台手机" }, Modifier.weight(1f).padding(horizontal = 10.dp),
                             fontWeight = FontWeight.SemiBold)
-                        StatusLabel("未绑定")
+                        StatusLabel(if (scheduling?.bound == true) "已连接" else "未绑定")
                     }
-                    Text(if (configured) "接入配置已保存" else "连接 GEO，准备开始监测", fontSize = 24.sp,
+                    Text(if (scheduling?.bound == true) "${if (scheduling.running) "轮询运行中" else "设备已连接"}"
+                        else if (configured) "接入配置已保存" else "连接 GEO，准备开始监测", fontSize = 24.sp,
                         lineHeight = 32.sp, fontWeight = FontWeight.Bold)
-                    Text("由 GEO 分配品牌监测任务，手机负责操作应用、采集回答与回传证据。", lineHeight = 22.sp)
+                    Text("由 GEO 分配品牌监测任务，手机领取任务、采集回答并回传；问题由你发送。", lineHeight = 22.sp)
                     Button(onClick = settings, modifier = Modifier.fillMaxWidth()) {
                         Text(if (configured) "管理接入配置" else "配置 GEO 接入")
                         Spacer(Modifier.width(8.dp)); Icon(Icons.AutoMirrored.Outlined.ArrowForward, null, Modifier.size(18.dp))
                     }
-                    Text("自动接单待接入 · 当前不会领取或发送任务", fontSize = 12.sp)
+                    Text("在任务页连接设备并开启轮询 · 问题由你发送一次", fontSize = 12.sp)
                 }
             }
         }
@@ -65,7 +69,11 @@ import com.packetcapture.ui.home.CaptureUiState
             SectionTitle("运行准备", "检查设备")
             Spacer(Modifier.height(8.dp))
             Panel {
-                ReadinessRow(Icons.Outlined.CloudQueue, "接入配置", if (configured) "配置已保存，尚未绑定设备" else "填写服务地址和设备信息", configured)
+                ReadinessRow(Icons.Outlined.CloudQueue, "接入配置", when {
+                    scheduling?.bound == true -> "设备已连接 GEO，任务页可继续接单"
+                    configured -> "配置已保存，尚未绑定设备"
+                    else -> "填写服务地址和设备信息"
+                }, scheduling?.bound == true)
                 HorizontalDivider()
                 ReadinessRow(Icons.Outlined.TouchApp, "应用操作", "无障碍执行器待实现", false)
                 HorizontalDivider()
@@ -109,18 +117,21 @@ import com.packetcapture.ui.home.CaptureUiState
         }
         item {
             Panel {
-                SectionTitle("任务动态", "服务端尚未连接")
+                SectionTitle("任务动态", "在任务页查看实时连接与领取状态")
                 Spacer(Modifier.height(10.dp))
-                Muted("绑定后，在这里查看当前任务、回传情况与需要人工处理的异常。")
+                Muted(scheduling?.message ?: "绑定后，在任务页查看当前任务、回传情况与需要人工处理的异常。")
                 TextButton(onClick = tasks) { Text("查看任务工作区") }
             }
         }
     }
 }
 
-@Composable internal fun TasksScreen(settings: () -> Unit, capture: () -> Unit) {
+@Composable internal fun TasksScreen(settings: () -> Unit, capture: () -> Unit,
+    scheduler: com.packetcapture.scheduler.AndroidScheduler? = null, serverUrl: String = "") {
     LazyColumn(Modifier.fillMaxSize().testTag("tasks-list"), contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        if (scheduler != null) item { SchedulerPanel(scheduler, serverUrl) }
+        if (scheduler == null)
         item {
             Panel {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -136,11 +147,11 @@ import com.packetcapture.ui.home.CaptureUiState
             }
         }
         item {
-            SectionTitle("单台手机，一次执行一个任务", "计划执行流程")
+            SectionTitle("单台手机，一次执行一个任务", "当前执行流程")
             Spacer(Modifier.height(8.dp))
             Panel {
                 FlowStep("01", "领取任务", "手机轮询 GEO，领取适配本机平台能力的任务租约。")
-                FlowStep("02", "准备并发送", "检查应用与采集状态，保存任务身份和发送边界后单次提问。")
+                FlowStep("02", "准备并发送", "先点击准备采集，再复制原文到目标应用的新对话，人工发送一次。")
                 FlowStep("03", "等待完整回答", "关联本次请求，采集回答、引用及证据；持续报告任务心跳。")
                 FlowStep("04", "持久化并回传", "先保存结果，再幂等上传；服务端确认后才领取下一条任务。")
             }

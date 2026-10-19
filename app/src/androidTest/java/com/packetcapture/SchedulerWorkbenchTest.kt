@@ -38,7 +38,7 @@ class SchedulerWorkbenchTest {
             }
         } }
         compose.onNodeWithText("未绑定").assertIsDisplayed()
-        compose.onNodeWithText("自动接单待接入 · 当前不会领取或发送任务").assertIsDisplayed()
+        compose.onNodeWithText("在任务页连接设备并开启轮询 · 问题由你发送一次").assertIsDisplayed()
         saveScreenshot("workbench")
         compose.onNodeWithTag("workbench-list").performScrollToNode(hasText("平台能力"))
         compose.onNodeWithTag("workbench-list").performScrollToNode(hasText("com.tencent.hunyuan.app.chat · synthetic-1"))

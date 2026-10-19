@@ -178,6 +178,10 @@ internal class QianwenDecoder : AnswerDecoder {
             when {
                 mime == "multi_load/iframe" && load.qwString("type") == "inline_action_reply" ->
                     schema(content?.qwString("text") != null && !load.qwString("source_seq").isNullOrBlank())
+                mime == "multi_load/iframe" && load.qwString("type") == "video_note_list" ->
+                    // Recommendation cards are metadata; their titles and URLs are not answer text or citations.
+                    schema(load.qwString("html") == "" && !load.qwString("source_seq").isNullOrBlank() &&
+                        content?.qwString("intro") != null && content.qwObjects("list") != null)
                 mime == "bar/workflow" && load.qwString("type") == "bar_ref_source_inline" -> {
                     val docs = content?.qwObjects("docs")
                     if (!schema(docs != null && content.qwString("status") == "complete")) return

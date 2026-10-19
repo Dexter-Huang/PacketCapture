@@ -57,7 +57,7 @@ class MainActivity : ComponentActivity() {
                     export = documents::launch,
                     refreshStorage = { model.refreshStorage() }, clearStorage = model::clearStorage, clearMessage = { model.message(null) },
                     refreshEnvironment = { model.refreshEnvironment() },
-                ))
+                ), container.scheduler)
             }
         }
     }

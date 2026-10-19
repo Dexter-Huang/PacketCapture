@@ -11,6 +11,19 @@ import java.util.zip.DeflaterOutputStream
 import java.util.zip.GZIPOutputStream
 
 class BodyDecoderTest {
+    @Test fun connectLengthHeadersRetainExactDecompressedBytesInsteadOfUtf8RoundTrip() {
+        val payload = "{\"text\":\"${"合成🌈".repeat(30)}\"}".toByteArray()
+        val length = java.nio.ByteBuffer.allocate(4).putInt(payload.size).array()
+        val bytes = byteArrayOf(0) + length + payload + byteArrayOf(2, 0, 0, 0, 2, 123, 125)
+        val compressed = ByteArrayOutputStream().also { out -> GZIPOutputStream(out).use { it.write(bytes) } }.toByteArray()
+        val headers = listOf(Header("Content-Type", "Application/Connect+enum_num+json; charset=utf-8"), Header("Content-Encoding", "gzip"))
+        val preview = BodyDecoder.decode(compressed.inputStream(), headers)
+        assertArrayEquals(bytes, preview.rawBytes)
+        assertFalse(preview.limited)
+        assertTrue(BodyDecoder.decode(compressed.inputStream(), headers, truncated = true).limited)
+        assertNull(BodyDecoder.decode(bytes.inputStream(), listOf(Header("Content-Type", "application/json"))).rawBytes)
+        assertNull(BodyDecoder.decode(compressed.inputStream(), headers + Header("Content-Encoding", "future")).rawBytes)
+    }
     @Test fun activeGzipSsePreservesFlushedEventsBeforeTrailerArrives() {
         val output = ByteArrayOutputStream()
         val gzip = GZIPOutputStream(output, true)

@@ -9,7 +9,7 @@ import kotlinx.coroutines.withContext
 class AnswerReader(private val repository: CaptureRepository, private val bodies: BodyStore) {
     private val decoders: Map<String, AnswerDecoder> = mapOf(
         "yuanbao" to YuanbaoDecoder(), "doubao" to DoubaoDecoder(), "qianwen" to QianwenDecoder(),
-        "deepseek" to DeepseekDecoder())
+        "deepseek" to DeepseekDecoder(), "wenxin" to WenxinDecoder(), "kimi" to KimiDecoder())
 
     suspend fun read(sessionId: String, selector: AnswerSelector = AnswerSelector()): AnswerBatch = withContext(Dispatchers.IO) {
         val session = repository.session(sessionId) ?: error("Session not found")
@@ -17,13 +17,16 @@ class AnswerReader(private val repository: CaptureRepository, private val bodies
         val connections = repository.allConnections(sessionId).associateBy { it.id }
         // allExchanges intentionally bypasses the UI's 200-row window.
         for (stored in repository.allExchanges(sessionId).sortedBy { it.startedAt }) {
-            if (stored.rawTransport || !stored.responseHeaders.isEventStream() || stored.startedAt < selector.startedAfter ||
+            if (stored.rawTransport || stored.startedAt < selector.startedAfter ||
                 (selector.exchangeId != null && stored.id != selector.exchangeId)) continue
             val pkg = stored.packageName?.takeIf { it.isNotBlank() }
                 ?: connections[stored.connectionId]?.packageName?.takeIf { it.isNotBlank() }
                 ?: session.packages.singleOrNull()
             val platform = PlatformCatalog.forPackage(pkg) ?: continue
             if (selector.provider != null && selector.provider != platform.id) continue
+            val connect = platform.id == "kimi" && stored.responseHeaders.firstHeader("content-type")
+                ?.substringBefore(';')?.trim()?.lowercase() == "application/connect+enum_num+json"
+            if (!stored.responseHeaders.isEventStream() && !connect) continue
             val exchange = stored.copy(packageName = pkg)
             val decoder = decoders[platform.id]?.takeIf { it.matches(exchange) }
             val result = if (decoder == null) CapturedAnswer(provider = platform.id, sessionId = sessionId, exchangeId = exchange.id,

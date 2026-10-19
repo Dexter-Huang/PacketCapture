@@ -34,7 +34,7 @@
 
 元数据补丁还包含过程栏标题替换、数组末尾插入参考资料/交互控件、移除 `first_packet`、将 `/status` 替换为 `complete`。最终 workflow 快照未重发先前的来源列表，不能因此丢弃已采集来源。`complete` 事件及 `sse_end`、请求身份、连续顺序号、错误状态与 HTTP 完整生命周期应一起检查。未知事件或补丁不可静默拼接后报告完成。
 
-`QianwenDecoder`（`qianwen-chat-sse/1`）已按上述语义注册到 `AnswerReader`。12 项合成测试覆盖端点、问题精确提取、追加、来源、身份及连续序号、结束状态、错误、未知协议、截断和筛选。真实 HAR 离线回放为 `complete`：10 个事件、192 个码点、7 条来源、无诊断；答案与独立验证保存的协议状态逐字一致，来源 URL 顺序也一致。推理为空，交互占位和 Markdown 保留在原始 `answer`，不把控件文字或遥测嵌套文本拼成回答。
+`QianwenDecoder`（`qianwen-chat-sse/1`）已按上述语义注册到 `AnswerReader`。13 项合成测试覆盖端点、问题精确提取、追加、来源、身份及连续序号、结束状态、错误、未知协议、截断、筛选及视频卡片边界。真实 HAR 离线回放为 `complete`：10 个事件、192 个码点、7 条来源、无诊断；答案与独立验证保存的协议状态逐字一致，来源 URL 顺序也一致。推理为空，交互占位和 Markdown 保留在原始 `answer`，不把控件文字或遥测嵌套文本拼成回答。
 
 ## 回答接口真机验证
 
@@ -61,3 +61,13 @@ B/C 各有 74 条 ECH 透传；C 有 25 条明确阻止 UDP443 的记录。仅�
 本地忽略目录 `artifacts/qianwen-stream/` 保存 APK、HAR、原始事件、UI、构建及校验脚本。成功证据为 `qianwen-live-I-local-ca-policy.har` 和 `qianwen-sse-success/verification.json`；`verify_stream.py` 只离线验证已有样本，不发请求。真实报文和签名材料不提交 Git。
 
 本轮结束停止 VPN、恢复 UDP443 阻止关，HTTPS 解密仍开、目标仍为千问；保留测试版登录、抓包原 CA、历史及既有 TLS 映射。需要继续抓包时仍须使用上述本地测试版与定向抓包诊断版。
+
+## GEO 调度补充验证（2026-10-19）
+
+同一设备与上述私有测试条件下，首条监测问题应用正常回复，但没有对应明文 SSE。对已保存 PCAP 的 QUIC v1 Initial 做离线解析，读到 `chat2.qianwen.com`、ALPN `h3`，确认本轮聊天走 QUIC；这没有解密 QUIC 应用正文。该任务未误报成功，过期后退款并归档，没有重发。
+
+另建不同问题的隔离批次，临时阻止 UDP443、冷启动千问后只发送一次。取得当前问题对应的 TCP HTTP 200 完整 SSE：10 事件、235 码点、10 条参考来源，无正文截断或传输错误。初次解析因新增 `video_note_list` 返回 unsupported；补充已观察的空 HTML、非空 source_seq、intro 字符串与对象列表结构校验后返回 complete。视频卡片只作为元数据，标题和媒体 URL 不加入回答或参考来源，不下载媒体；未知卡片和异常结构继续拒绝完成。原始占位保留。
+
+更新同 signer 抓包 App 后，复用已准备任务与已保存会话完成回传，没有重新采集或发送。修复期间仅隔离联调脚本为同一任务续租；这不是无人值守自动恢复验收。离线独立重建、手机 AnswerReader 与 GEO 保存结果的 prompt、answer、reasoning、来源顺序及解析元数据逐字一致；原回答详情接口 200、正文一致，批次成功数 1，浏览器任务数 0。
+
+完整 llm 测试含本机真实回放共 71 项通过，既有三平台设备答案保持一致。证据仅存忽略目录 `artifacts/android-geo/`（`qw2-real.har`、`qw2-roundtrip-verification.json`），不提交真实报文。原 49 条会话不变，本轮两次测试后共 51 条；收尾 VPN、轮询和 ADB 导出关闭，UDP443 恢复关闭，原 CA、登录、目标及 TLS 映射保留。此结果仍只覆盖上述本地快速文本条件。

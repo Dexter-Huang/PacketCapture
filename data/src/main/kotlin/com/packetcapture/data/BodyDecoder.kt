@@ -51,7 +51,8 @@ internal object BodyDecoder {
             }
             rendered.note?.let(notes::add)
             BodyPreview(rendered.text, rendered.binary, limited || truncated,
-                notes.takeIf { it.isNotEmpty() }?.joinToString("；"), rendered.rawText)
+                notes.takeIf { it.isNotEmpty() }?.joinToString("；"), rendered.rawText,
+                bytes.takeIf { !unsupported && headers.firstHeader("content-type")?.substringBefore(';')?.trim()?.lowercase() == "application/connect+enum_num+json" })
         } catch (e: EOFException) {
             if (streaming) BodyPreview("", false, truncated, "正在等待流式压缩数据")
             else BodyPreview("", false, true, "正文无法解码：${e.message}，可导出 HAR 查看已保存的原始字节")

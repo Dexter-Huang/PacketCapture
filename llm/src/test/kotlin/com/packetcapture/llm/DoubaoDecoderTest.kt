@@ -43,7 +43,7 @@ class DoubaoDecoderTest {
         assertEquals("complete", result.status)
         assertEquals("# 你好🌈\n第二行", result.answer)
         assertEquals("QW-independent test question", result.prompt)
-        assertEquals("doubao-chat-sse/1", result.decoder)
+        assertEquals("doubao-chat-sse/2", result.decoder)
         assertEquals(10, result.eventCount)
         assertEquals(emptyList<String>(), result.diagnostics)
         assertEquals("", result.reasoning)
@@ -68,6 +68,37 @@ class DoubaoDecoderTest {
             assertFalse(decoder.matches(exchange().copy(url = url)))
         }
         assertFalse(decoder.matches(exchange().copy(method = "GET")))
+    }
+
+    private fun searchFlow(url: String = "https://example.test/source", deletedId: String = "loading",
+        scene: Int = 2, status: Int = 100): String {
+        fun loading(finish: Boolean) = """{"block_type":10101,"block_id":"loading","patch_type":2,"is_finish":$finish,"content":{"loading_block":{"scene":$scene,"text_loading":{"text":"正在搜索"}}}}"""
+        fun chunk(patches: String) = frame("STREAM_CHUNK", """{"message_id":"assistant","patch_op":[$patches]}""")
+        val begin = ack + frame("STREAM_MSG_NOTIFY", """{"content":{"content_block":[${loading(false)}]},"meta":{"message_id":"assistant","user_type":2}}""")
+        val finish = chunk("""{"patch_object":1,"patch_type":1,"patch_value":{"content_block":[${loading(true)}]}}""")
+        val search = """{"block_type":10025,"block_id":"search","patch_type":2,"is_finish":true,"content":{"search_query_result_block":{"scene":2,"search_type":1,"results":[{"text_card":{"title":"来源","url":"$url","index":1}},{"video_card":{"video_captions":"搜索视频","main_site_url":"https://example.test/video","index":2}},{"text_card":{"title":"重复","url":"$url","index":3}}]}}}"""
+        val transition = chunk("""{"patch_object":1,"patch_type":3,"patch_value":{"content_block":[{"block_type":10101,"block_id":"$deletedId","patch_type":2,"is_finish":false,"content":{}}]}},{"patch_object":3,"patch_type":2,"patch_value":{"content_status":$status}},{"patch_object":1,"patch_type":1,"patch_value":{"content_block":[$search]}},{"patch_object":50,"patch_type":1,"patch_value":{}}""")
+        return begin + finish + transition + patch("正文") + patch(finish = true) + end1 + end2 + end3
+    }
+
+    @Test fun searchLoadingRemovalAndExplicitResultsPreserveAnswerAndSourceOrder() {
+        val result = decode(searchFlow())
+        assertEquals("complete", result.status)
+        assertEquals("正文", result.answer)
+        assertEquals(listOf(SearchSource("来源", "https://example.test/source", 1),
+            SearchSource("搜索视频", "https://example.test/video", 2)), result.searchSources)
+        assertEquals("collected", result.referenceCaptureStatus)
+    }
+
+    @Test fun unknownSearchLifecycleAndUnsafeUrlsNeverBecomeSuccessOrSources() {
+        for (flow in listOf(searchFlow(deletedId = "other"), searchFlow(scene = 9), searchFlow(status = 999))) {
+            assertEquals("unsupported", decode(flow).status)
+        }
+        val result = decode(searchFlow(url = "javascript:alert(1)"))
+        assertEquals("complete", result.status)
+        assertEquals(listOf("https://example.test/video"), result.searchSources.map { it.url })
+        assertNotEquals("complete", decode(searchFlow().replace(end3, "")).status)
+        assertEquals("incomplete", decode(searchFlow(), e = exchange().copy(responseBody = responseBody.copy(truncated = true))).status)
     }
 
     @Test fun promptUsesCurrentMessagesAndPreservesExactWhitespace() {
