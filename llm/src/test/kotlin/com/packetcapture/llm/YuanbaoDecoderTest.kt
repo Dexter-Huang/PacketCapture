@@ -52,4 +52,23 @@ class YuanbaoDecoderTest {
         assertEquals("incomplete", read(mark(), truncated = true).status)
         assertEquals("incomplete", read(mark(), completion = Completion.INTERRUPTED).status)
     }
+
+    @Test fun segmentAnnotationsCanArriveAfterLaterParagraphsWithoutChangingAnswer() {
+        val first = "第一段正文。[](@mark_underline=1)"
+        val second = "第二段正文。[](@mark_underline=2)"
+        val body = first + second + "后续已流出的第三段。"
+        val mark = frame(mapOf("type" to "mark", "mark" to mapOf(
+            "mark_id" to 2, "content" to "第二段[](@replace=10002)正文。[](@mark_underline=2)",
+            "mark_start" to "[](@mark_underline=1)", "mark_end" to "[](@mark_underline=2)")))
+        val stream = frame(mapOf("type" to "text", "msg" to body)) + mark +
+            frame(mapOf("type" to "meta", "stopReason" to "stop", "modelErrorCode" to 0)) + "data: [DONE]\n\n"
+        val exchange = HttpExchange(id = "e", sessionId = "s", connectionId = "c", method = "POST",
+            url = "https://api.yuanbao.tencent.com/api/chat/test", protocol = "HTTP/1.1", startedAt = 1,
+            endedAt = 2, status = 200, completion = Completion.COMPLETE, requestBody = BodyRef("req"),
+            responseBody = BodyRef("res"))
+        val result = YuanbaoDecoder().decode(exchange, BodyPreview("{\"prompt\":\"合成问题\"}", false, false),
+            BodyPreview(stream, false, false))
+        assertEquals("complete", result.status)
+        assertEquals(body, result.answer)
+    }
 }
