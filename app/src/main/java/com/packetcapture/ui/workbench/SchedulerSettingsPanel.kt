@@ -52,7 +52,7 @@ import com.packetcapture.ui.components.Panel
                 }, label = { Text(platform.displayName) })
             }
         }
-        Muted("接单需目标应用已安装、选中 HTTPS 采集且有完整回答样本；问题目前由你发送一次。")
+        Muted("接单需目标应用已安装、选中 HTTPS 采集且有完整回答样本；豆包自动发题已验证，元宝已通过不发送预检、实时闭环待验证。")
         Spacer(Modifier.height(12.dp))
         if (changed && error != null) Text(error, color = MaterialTheme.colorScheme.error)
         Button(onClick = { save(draft) }, enabled = changed && error == null,

@@ -1,6 +1,6 @@
 # 多平台抓包与手机任务工具
 
-Packet Capture 是手机端工具 App 的代码主体。GEO 负责品牌监测任务、租户、调度及分析；手机工具负责领取任务、采集与证据输出。当前实现设备绑定、手机轮询、租约心跳、完整回答关联和幂等回传；问题仍人工发送一次，自动操作与长期后台执行待实现。实际协议、持久化和真机验证范围见 [手机调度接入](android-scheduler.md)。
+Packet Capture 是手机端工具 App 的代码主体。GEO 负责品牌监测任务、租户、调度及分析；手机工具负责领取任务、采集与证据输出。当前实现设备绑定、手机轮询、租约心跳、完整回答关联和幂等回传；豆包可选无障碍单次发题已真机验证，其他平台人工发题，长期后台执行待实现。实际协议、持久化和真机验证范围见 [手机调度接入](android-scheduler.md)。
 
 实际排查过程和可复用验证方法见 [抓包开发经验](capture-development-notes.md)。
 
@@ -64,21 +64,21 @@ TLS 明文和可读实体是两个条件；豆包曾在 HTTPS 内继续加密正
 
 ## 手机调度与后续应用操作
 
-同一 APK 已通过 `app/.../scheduler/` 装配 GEO 连接、加密任务日志和回答采集，直接调用 `AnswerReader`。应用操作执行器仍待实现；当前由操作者在目标应用的新对话发送冻结原文一次。电脑 ADB 代操作的真机验收不等于 App 已具备自动提问能力。
+同一 APK 通过 `app/.../scheduler/` 装配 GEO 连接、加密任务日志和回答采集，直接调用 `AnswerReader`。`app/.../execution/` 按包名和实际控件识别新对话、覆盖输入及核对原文，单次点击发送。豆包及元宝已在指定测试版与移动网络条件下完成 APK 自动发题及回传；其余平台仍人工发题。扩展位置与验证边界见 [执行器交接](android-executor-handoff.md)。
 
 | 职责 | 维护位置与约束 |
 | --- | --- |
-| 设备操作（待实现） | 按平台打开应用、输入、单次发送、等待和截图；与网络解码器分开，UI 改版不应牵动 TLS |
-| `AndroidScheduler` / `SchedulerJournal` | 已实现领取、准备、核对、回传和终态归档；加密保存任务、sessionId、时间边界与待回传结果 |
+| `PhoneExecutor` / `MonitorAccessibilityService` | 已实现豆包及元宝打开、新对话、覆盖输入、原文核对和单次发送；其他平台及截图待实现，与网络解码器分开 |
+| `AndroidScheduler` / `SchedulerJournal` | 领取后自动准备、检查完整回答及幂等回传；异常终态人工核对归档；加密保存任务、sessionId、时间边界与待回传结果 |
 | `GeoClient` | 已实现 HTTPS 绑定验证、领取、心跳与结果上传；只依赖任务/回答契约，不接触 Room 表和 CA 私钥 |
 
-服务端任务状态为 `queued → leased → completed/failed/expired`；手机另持久化 prepared、采集边界与待上传结果。单手机串行执行任务，已领取任务不自动重新入队。准备采集不代表已经发送；未来自动执行器还需持久化发送边界，崩溃后无法确认时只采集已有记录或转人工，不直接重发。
+服务端任务状态为 `queued → leased → completed/failed/expired`；手机另持久化 prepared、采集边界、执行阶段与待上传结果。轮询开启后自动准备；本地每 2.5 秒检查 `AnswerReader`，仅 `unique_complete` 持久化并上传；网络心跳与失败重试继续使用设置间隔。暂停停止自动检查，重新开启复用已保存边界及 outbox。单手机串行执行任务，已领取任务不自动重新入队。豆包在点击发送前先持久化 send_started；崩溃后无法确认时只采集已有记录，不补发。旧任务无执行阶段时保持人工模式；自动执行4分钟未完成按原协议提交失败。
 
 关联记录至少包括任务/尝试 ID、provider、设备时间起点、原始问题、目标包及版本、采集会话与请求 ID、解码器版本、结果状态、证据摘要和错误分类。`taskId` 是调度身份，问题全文只是筛选条件；重复问题或自动重试产生多个候选时报告歧义，不擅自取最新一条。
 
 GEO 上传已映射 `answer/reasoning/searchSources/referenceCaptureStatus/decoder/packageName/sessionId/exchangeId`，原任务的 resultJson 标记 `source=android_capture_sse`、`executionChannel=android`。仅 unique_complete 可进入成功回传，服务端确认后才清除待上传结果。截图上传仍待实现；品牌命中、排名、情感与计费留在 GEO。字段与失败处理见 [手机调度接入](android-scheduler.md)。
 
-当前 ADB 接口仅用于开发联调。手机独立运行时，GEO 连接在本进程调用 `AnswerReader`，无需通过电脑或开放网络端口。VPN 授权、目标应用证书信任及设备操作权限仍按 Android 流程完成。
+当前 ADB 接口仅用于开发联调。手机执行时，GEO连接在本进程调用 `AnswerReader`，无需Python读取或额外开放采集端口；GEO本身仍需手机可访问的HTTPS地址，本机USB localhost桥仍依赖电脑。VPN 授权、目标应用证书信任及设备操作权限仍按 Android 流程完成。
 
 ## 版本与数据维护
 

@@ -51,3 +51,7 @@ APK 签名、16KiB 对齐、ZIP 完整性与全部 41701 个非签名 payload �
 13 项新增合成测试通过；真实 HAR 在 Kotlin 解码器中离线回放得到 `complete`、56 个事件、385 个 Unicode 码点、无诊断，与保存的实时答案一致。摘要在 `artifacts/doubao-stream/llm-replay-verification.json`。成功明文响应仍有 `x-tt-e-b: 1`，已用回放验证不能仅凭该头判定正文加密。
 
 上述为接入阶段记录。2026-10-20 已通过同 signer 的 `1.1.0-qw-ech-probe` 真机及隔离 GEO 验证：单次提问自动触发搜索，完整 47 事件、134 码点、38 条显式搜索来源。`doubao-chat-sse/2` 新增观察到的搜索加载生命周期及结果来源；正文与 UI 规范化一致，原 GEO 详情 200、正文和来源 title/url 顺序一致。推荐视频与明确搜索视频来源分别处理，推理仍未验证。修复复用同次流与有效任务，没有重发；范围及收尾见 [手机调度记录](docs/android-scheduler.md#验证记录2026-10-20)。通用经验见 [开发记录](docs/capture-development-notes.md#10-豆包三个独立障碍及解码结果)，本机交接入口为 `HANDOFF-DOUBAO-QIANWEN.md`。
+
+## APK自动发题补充（2026-10-21）
+
+Android16、豆包15.0.0已登录本地CA测试版、移动网络及UDP443阻止条件下，PacketCapture无障碍执行器完成新任务自动打开新对话、覆盖输入、全文核对和单次发送；完整实时回答自动回传，原任务与批次约33秒完成。117事件、715码点正文、12来源，手机与GEO结果逐字段一致。未替换豆包安装包，不表示公司Wi-Fi、官方原版或长期后台执行通过。接手和扩展见[执行器交接](docs/android-executor-handoff.md)。

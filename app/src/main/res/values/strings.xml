@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">GEO 设备工作台</string>
+    <string name="monitor_accessibility_description">执行已领取的豆包、元宝快速文本或 DeepSeek 普通文本监测任务；千问快速模式适配待验收。新建对话、覆盖填写问题并发送一次；不会自动解锁或重复发送。回答仍通过本机采集校验。</string>
 </resources>

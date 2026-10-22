@@ -49,12 +49,12 @@ import com.packetcapture.ui.home.CaptureUiState
                     Text(if (scheduling?.bound == true) "${if (scheduling.running) "轮询运行中" else "设备已连接"}"
                         else if (configured) "接入配置已保存" else "连接 GEO，准备开始监测", fontSize = 24.sp,
                         lineHeight = 32.sp, fontWeight = FontWeight.Bold)
-                    Text("由 GEO 分配品牌监测任务，手机领取任务、采集回答并回传；问题由你发送。", lineHeight = 22.sp)
+                    Text("由 GEO 分配品牌监测任务；手机领取、采集并回传，豆包可启用自动发题。", lineHeight = 22.sp)
                     Button(onClick = settings, modifier = Modifier.fillMaxWidth()) {
                         Text(if (configured) "管理接入配置" else "配置 GEO 接入")
                         Spacer(Modifier.width(8.dp)); Icon(Icons.AutoMirrored.Outlined.ArrowForward, null, Modifier.size(18.dp))
                     }
-                    Text("在任务页连接设备并开启轮询 · 问题由你发送一次", fontSize = 12.sp)
+                    Text("在任务页连接设备并开启轮询 · 豆包可启用自动发题", fontSize = 12.sp)
                 }
             }
         }
@@ -75,11 +75,11 @@ import com.packetcapture.ui.home.CaptureUiState
                     else -> "填写服务地址和设备信息"
                 }, scheduling?.bound == true)
                 HorizontalDivider()
-                ReadinessRow(Icons.Outlined.TouchApp, "应用操作", "无障碍执行器待实现", false)
+                ReadinessRow(Icons.Outlined.TouchApp, "应用操作", "豆包、元宝快速文本和 DeepSeek 普通文本已验证；千问快速模式待验收", scheduling?.automaticDoubao == true)
                 HorizontalDivider()
                 val active = state.capture.phase == CapturePhase.CAPTURING
                 ReadinessRow(Icons.Outlined.Sensors, "回答采集", when (state.capture.phase) {
-                    CapturePhase.CAPTURING -> "采集运行中，回答完整性需按任务核对"
+                    CapturePhase.CAPTURING -> "采集运行中，完整回答按任务自动核对与回传"
                     CapturePhase.STARTING -> "采集正在启动"
                     CapturePhase.STOPPING -> "采集正在停止"
                     CapturePhase.FAILED -> "采集异常，请打开工具检查"
@@ -107,7 +107,10 @@ import com.packetcapture.ui.home.CaptureUiState
                             StatusLabel(if (!state.ready) "读取中" else if (app == null) "未找到应用" else "已安装")
                         }
                         Muted(if (app == null) "候选包未匹配" else "${app.packageName} · ${app.versionName ?: "版本未知"}")
-                        Muted(if (platform.support == "verified_sample") "回答解析：已有指定版本样本 · 自动操作：待实现"
+                        Muted(if (platform.id == "yuanbao") "快速文本自动发题已验证 · 较长搜索回答仍有解析阻塞"
+                            else if (platform.id == "deepseek") "普通文本控件适配待验收 · 搜索和深度思考必须关闭"
+                            else if (platform.id == "doubao") "回答解析：已有指定版本样本 · 可启用自动发题"
+                            else if (platform.support == "verified_sample") "回答解析：已有指定版本样本 · 自动操作：待实现"
                             else "回答解析：待验证 · 自动操作：待实现")
                         if (platform.id in config.providers) Text("已列入执行计划", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp)
                     }
@@ -151,9 +154,9 @@ import com.packetcapture.ui.home.CaptureUiState
             Spacer(Modifier.height(8.dp))
             Panel {
                 FlowStep("01", "领取任务", "手机轮询 GEO，领取适配本机平台能力的任务租约。")
-                FlowStep("02", "准备并发送", "先点击准备采集，再复制原文到目标应用的新对话，人工发送一次。")
-                FlowStep("03", "等待完整回答", "关联本次请求，采集回答、引用及证据；持续报告任务心跳。")
-                FlowStep("04", "持久化并回传", "先保存结果，再幂等上传；服务端确认后才领取下一条任务。")
+                FlowStep("02", "准备采集与发题", "手机自动保存本次采集边界；豆包开启自动发题后由手机发送，其他平台按原文人工发送一次。")
+                FlowStep("03", "自动等待完整回答", "持续关联本次请求、检查完整性并续租；无需返回点击核对。")
+                FlowStep("04", "自动保存并回传", "完整结果先加密保存再幂等上传；服务端确认后才领取下一条任务。")
             }
         }
         item {

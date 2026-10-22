@@ -64,10 +64,7 @@ class GeoSchedulerIntegrationTest {
             val received = withTimeout(30000) { scheduler.state.first { it.job != null } }.job!!
             assertEquals("yuanbao", received.provider)
             prompt = received.prompt
-            scheduler.stop()
-            scheduler.prepare()
             withTimeout(30000) { scheduler.state.first { it.prepared && !it.busy } }
-            scheduler.collect()
             withTimeout(30000) { scheduler.state.first { it.job == null && !it.busy && it.message.contains("已确认") } }
             val restored = SchedulerJournal(context, name).read()
             assertNull(restored.job)

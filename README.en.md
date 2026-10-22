@@ -16,7 +16,7 @@ The `llm` JVM module normalizes captured answers independently of the VPN transp
 
 See [capture development notes](docs/capture-development-notes.md) (Chinese) for the Yuanbao, Doubao, Qianwen and DeepSeek investigations: TLS/QUIC, ECH passthrough, native CA policies, application-payload encryption and SSE parsing. [Doubao test results](DOUBAO-STREAM-TEST.md) · [Qianwen test results](QIANWEN-CAPTURE-TEST.md) · [DeepSeek test results](DEEPSEEK-CAPTURE-TEST.md) (Chinese). Qianwen quick-text parsing is verified; live decryption still requires the documented local test conditions.
 
-The GEO device workbench supports HTTPS binding, task claims, lease heartbeats, capture boundaries and idempotent result uploads. All six platforms have completed the Android monitoring flow in the isolated test environment under their documented conditions. Prompt entry remains an operator action; in-app accessibility automation and unattended background execution are pending. See [Android immediate monitoring](docs/android-scheduler.md#立即监测入口) (Chinese).
+The GEO device workbench supports HTTPS binding, task claims, lease heartbeats, capture boundaries and idempotent result uploads. All six platforms have completed the Android monitoring flow under their documented conditions. Doubao and Yuanbao have opt-in Android accessibility executors, verified with the documented test apps and mobile data; the remaining four platforms require one manual submission. Unattended background execution remains pending. See [Android immediate monitoring](docs/android-scheduler.md#立即监测入口) and [executor handoff](docs/android-executor-handoff.md) (Chinese).
 
 | Feature | Description |
 | --- | --- |

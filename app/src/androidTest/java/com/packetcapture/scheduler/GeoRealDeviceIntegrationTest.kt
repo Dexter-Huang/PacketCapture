@@ -51,15 +51,9 @@ class GeoRealDeviceIntegrationTest {
             assertEquals(config["batchId"].asString, job.batchId)
             assertEquals("qianwen", job.provider)
             config["prompt"]?.let { assertEquals(it.asString,job.prompt) }
-            scheduler.prepare()
             withTimeout(15000) { scheduler.state.first { it.prepared && !it.busy } }
             android.util.Log.i("GeoRealTest", "GEO_REAL_TASK_PREPARED")
-            withTimeout(240000) {
-                while (scheduler.state.value.job != null) {
-                    scheduler.collect()
-                    delay(2500)
-                }
-            }
+            withTimeout(240000) { scheduler.state.first { it.job == null } }
             assertTrue(scheduler.state.value.message.contains("已确认"))
         } finally {
             scheduler.stop()
