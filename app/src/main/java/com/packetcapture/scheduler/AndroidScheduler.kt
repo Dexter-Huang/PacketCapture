@@ -143,6 +143,18 @@ class AndroidScheduler internal constructor(
         persist(SchedulerRecord())
         publish("已清除本机连接；服务端凭据需由 GEO 管理者撤销")
     }
+    /** 原服务无法恢复时，由用户确认迁移；保留旧凭据、发送边界和待回传回答的加密归档。 */
+    fun archiveExpiredConnection() = action {
+        require(state.value.loaded && !state.value.running && polling?.isActive != true)
+        val job = requireNotNull(record.job)
+        require(java.time.Instant.parse(job.leaseUntil).toEpochMilli() <= System.currentTimeMillis()) {
+            "任务租约尚未到期，请先暂停并等待租约结束"
+        }
+        // 归档失败时绝不清空；旧结果不转投新服务，不宣称原服务已经确认或退款。
+        journal.archive()
+        persist(SchedulerRecord())
+        publish("旧连接和待回传结果已加密归档；原服务终态未确认，请重新绑定。旧问题不会重发")
+    }
     fun automaticDoubao(enabled: Boolean) = action {
         require(!state.value.running && record.job == null && record.outbox == null)
         persist(record.copy(automaticDoubao = enabled))

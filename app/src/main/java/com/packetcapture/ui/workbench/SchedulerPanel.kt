@@ -21,8 +21,19 @@ import com.packetcapture.ui.components.Muted
     val state = scheduler.state.collectAsStateWithLifecycle().value
     var token by remember { mutableStateOf("") }
     var pin by remember { mutableStateOf("") }
+    var confirmMigration by remember { mutableStateOf(false) }
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
+    if (confirmMigration) AlertDialog(
+        onDismissRequest = { confirmMigration = false },
+        title = { Text("归档旧环境并重新绑定") },
+        text = { Text("仅在原服务无法恢复、旧租约已经到期时使用。旧任务、待回传回答和凭据将加密保存在本机；不会确认原服务成功或退款，也不会向新服务上传旧回答。旧问题不会重新发送。请保留应用数据，卸载会丢失归档和密钥。") },
+        confirmButton = { TextButton(onClick = {
+            confirmMigration = false
+            scheduler.archiveExpiredConnection()
+        }) { Text("加密归档并更换连接") } },
+        dismissButton = { TextButton(onClick = { confirmMigration = false }) { Text("取消") } },
+    )
     Panel {
         Text(if (state.bound) "GEO 调度连接" else "连接设备凭据", style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(8.dp))
@@ -108,6 +119,9 @@ import com.packetcapture.ui.components.Muted
             }
             TextButton(onClick = scheduler::reviewTerminal, enabled = !state.busy && !state.running) {
                 Text("核对服务端终态并归档本地记录")
+            }
+            TextButton(onClick = { confirmMigration = true }, enabled = !state.busy && !state.running) {
+                Text("原服务无法恢复：归档并迁移")
             }
         }
         if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())

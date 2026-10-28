@@ -14,6 +14,50 @@ import com.packetcapture.execution.*
 
 /** 使用真实调度循环与 AnswerReader，验证自动化不会放宽关联及持久化规则。 */
 class AndroidSchedulerTest {
+    @Test fun expiredMigrationArchivesPendingAnswerWithoutNetworkOrResending() = runBlocking {
+        val f = Fixture()
+        try {
+            val old = f.store.value.copy(job = f.job.copy(leaseUntil = "2000-01-01T00:00:00Z"),
+                outbox = "synthetic-pending-result", sessionId = "s", executionPhase = "send_started")
+            f.store.value = old
+            f.await { it.loaded }
+            f.scheduler.archiveExpiredConnection()
+            f.await { !it.bound && it.job == null }
+            assertEquals(listOf(old), f.store.archives.toList())
+            assertEquals(SchedulerRecord(), f.store.value)
+            assertTrue(f.paths.isEmpty())
+            assertTrue(f.phoneActions.isEmpty())
+        } finally { f.close() }
+    }
+
+    @Test fun migrationPreservesOriginalRecordWhenArchiveFails() = runBlocking {
+        val f = Fixture()
+        try {
+            val old = f.store.value.copy(job = f.job.copy(leaseUntil = "2000-01-01T00:00:00Z"), outbox = "saved-answer")
+            f.store.value = old
+            f.store.failArchive = true
+            f.await { it.loaded }
+            f.scheduler.archiveExpiredConnection()
+            f.await { it.message.contains("失败") && !it.busy }
+            assertEquals(old, f.store.value)
+            assertTrue(f.paths.isEmpty())
+        } finally { f.close() }
+    }
+
+    @Test fun migrationRejectsAnUnexpiredLease() = runBlocking {
+        val f = Fixture()
+        try {
+            val old = f.store.value.copy(job = f.job, outbox = "saved-answer")
+            f.store.value = old
+            f.await { it.loaded }
+            f.scheduler.archiveExpiredConnection()
+            f.await { it.message.contains("失败") && !it.busy }
+            assertEquals(old, f.store.value)
+            assertTrue(f.store.archives.isEmpty())
+        } finally { f.close() }
+    }
+
+
     @Test fun rotationClaimsFromIdleAndSwitchesCaptureOnlyAfterPreviousResultIsAcknowledged() = runBlocking {
         val f = Fixture()
         try {
@@ -278,10 +322,15 @@ class AndroidSchedulerTest {
     }
 
     private class MemoryStore : SchedulerStorage {
+        val archives = CopyOnWriteArrayList<SchedulerRecord>()
+        var failArchive = false
         @Volatile var value = SchedulerRecord(token = "synthetic-device-token")
         override fun read() = value
         override fun write(record: SchedulerRecord) { value = record }
-        override fun archive() = Unit
+        override fun archive() {
+            if (failArchive) throw IOException("synthetic archive failure")
+            archives += value
+        }
     }
 
     private class Fixture {
