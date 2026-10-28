@@ -82,7 +82,6 @@ internal class KimiDecoder : AnswerDecoder {
         private var textId:String?=null
         private var thinkId:String?=null
         private var thinkParent:String?=null
-        private var summarySeen=false
         fun stagesFinished() = stages.values.all { it.status==2 }
         private fun schema(ok:Boolean, issue:String="unrecognized_event"):Boolean {
             if(!ok) { unknown=true;issues+=issue };return ok
@@ -172,13 +171,14 @@ internal class KimiDecoder : AnswerDecoder {
                 "block.text", "block.text.content", "block.think", "block.think.content" -> text(p,mask,op)
                 "block.think.summary" -> {
                     val b=p.kmObj("block");val think=b?.kmObj("think")
-                    // 已验证的推理摘要标题是元数据，不替换或追加已采集推理。
-                    if(schema(op==1 && !summarySeen && !messageFinished && thinkId!=null && b!=null &&
+                    // 同一推理块的摘要可在推理或正文阶段更新，仅作元数据，不改正文或推理。
+                    schema(op==1 && !messageFinished && thinkId!=null && b!=null &&
                             b.kmString("id")==thinkId && b.kmString("parentId")==thinkParent &&
-                            (!b.has("messageId") || b.kmString("messageId")==reply) && stages[thinkParent]?.status==2 &&
+                            (!b.has("messageId") || b.kmString("messageId")==reply) &&
+                            stages[thinkParent]?.kind=="stage" && stages[thinkParent]?.status in setOf(1,2) &&
                             !think?.kmString("summary").isNullOrBlank() && think!!.keySet()==setOf("summary") &&
                             b.entrySet().all { (k,v) -> k in setOf("id","parentId","messageId","think","createTime") || v.isJsonNull },
-                            "unsupported_thinking_summary")) summarySeen=true
+                            "unsupported_thinking_summary")
                 }
                 else -> schema(false,"unsupported_component")
             }

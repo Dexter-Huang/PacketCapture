@@ -20,6 +20,7 @@ data class SchedulerUiState(
     val busy: Boolean = false, val message: String = "尚未连接 GEO",
     val automaticDoubao: Boolean = false, val executionPhase: String? = null,
     val automaticProvider: String = "doubao",
+    val automaticAllPlatforms: Boolean = false,
 )
 
 /** 同机串行调度：自动准备、按选定平台单次发题、等待完整回答和幂等上传。 */
@@ -45,6 +46,8 @@ class AndroidScheduler internal constructor(
     private val gson = Gson()
     private var record = SchedulerRecord()
     private var polling: Job? = null
+    private var automaticCaptureSession: String? = null
+    private var automaticCaptureProvider: String? = null
     private val mutable = MutableStateFlow(SchedulerUiState())
     val state = mutable.asStateFlow()
     init { scope.launch { mutex.withLock {
@@ -56,6 +59,7 @@ class AndroidScheduler internal constructor(
         job = record.job, prepared = record.sessionId != null, pendingUpload = record.outbox != null,
         automaticDoubao = record.automaticDoubao, executionPhase = record.executionPhase,
         automaticProvider = record.automaticProvider ?: "doubao",
+        automaticAllPlatforms = record.automaticAllPlatforms,
         message = message) } }
     private fun persist(value: SchedulerRecord) { journal.write(value); record = value }
     private fun send(method: String, path: String, body: Any = emptyMap<String, String>()) =
@@ -83,12 +87,17 @@ class AndroidScheduler internal constructor(
         require(state.value.loaded)
         require(record.token.isNotBlank())
         if (polling?.isActive == true) return@action
-        if (record.automaticDoubao && capture.state.value.phase in setOf(CapturePhase.IDLE, CapturePhase.FAILED)) {
+        if (record.automaticDoubao && !record.automaticAllPlatforms && capture.state.value.phase in setOf(CapturePhase.IDLE, CapturePhase.FAILED)) {
             val config = settings.settings.first().capture
             val provider = record.automaticProvider ?: "doubao"
             require(PhonePlatforms.packageName(provider) in config.packages && config.decryptHttps) { "请先选择自动发题平台并启用 HTTPS 采集" }
             // 已授权 VPN 后可由手机启动；仅本次运行使用已验证的 TCP 回退，保留原设置。
             capture.start(config.copy(blockUdp443 = provider in setOf("doubao", "qianwen")))
+        }
+        if (record.automaticDoubao && record.automaticAllPlatforms && record.job != null &&
+            record.sessionId != null && record.outbox == null && record.executionPhase != "manual") {
+            // 恢复只追加采集会话，不移动旧边界，也不重置 send_started/sent。
+            prepareAutomaticCapture(record.job!!.provider)
         }
         mutable.update { it.copy(running = true) }
         polling = scope.launch {
@@ -144,6 +153,11 @@ class AndroidScheduler internal constructor(
         require(provider in PhonePlatforms.packages)
         persist(record.copy(automaticProvider = provider))
         publish("已选择${PhonePlatforms.names.getValue(provider)}；先检查界面，再继续接单")
+    }
+    fun automaticAllPlatforms(enabled: Boolean) = action {
+        require(!state.value.running && record.job == null && record.outbox == null)
+        persist(record.copy(automaticAllPlatforms = enabled))
+        publish(if (enabled) "已开启按计划平台自动轮转；各任务独立采集、单次发送并回传" else "已恢复仅领取选定平台")
     }
     fun checkDoubaoControls() = action {
         require(record.job == null && !state.value.running)
@@ -202,16 +216,18 @@ class AndroidScheduler internal constructor(
         }
         val config = settings.settings.first()
         val current = capture.state.value
-        if (current.phase != CapturePhase.CAPTURING || !config.capture.decryptHttps) {
+        val rotating = record.automaticDoubao && record.automaticAllPlatforms
+        if ((!rotating && current.phase != CapturePhase.CAPTURING) || !config.capture.decryptHttps) {
             send("POST", "/devices/heartbeat")
             publish("设备在线；先启动 HTTPS 采集才会领取任务")
             return
         }
         val providers = config.scheduler.providers.filter { id ->
             val platform = PlatformCatalog.byId(id)
-            (!record.automaticDoubao || id == (record.automaticProvider ?: "doubao") && executor?.available() == true) &&
+            (!record.automaticDoubao || (rotating || id == (record.automaticProvider ?: "doubao")) &&
+                id in PhonePlatforms.packages && executor?.available() == true) &&
             platform != null && platform.support == "verified_sample" && platform.packageCandidates.any { pkg ->
-                pkg in config.capture.packages && installed(pkg)
+                (rotating || pkg in config.capture.packages) && installed(pkg)
             }
         }
         if (providers.isEmpty()) {
@@ -226,8 +242,9 @@ class AndroidScheduler internal constructor(
             persist(record.copy(claimRequestId = "")); publish("设备在线，暂无适配任务")
         } else {
             val received = gson.fromJson(element, MobileJob::class.java)
+            require(received.provider in providers) { "服务端返回了本机未就绪的平台" }
             persist(record.copy(job = received, sessionId = null, startedAfter = 0, additionalSessionIds = null,
-                executionPhase = if (record.automaticDoubao && received.provider == (record.automaticProvider ?: "doubao")) "launch" else "manual",
+                executionPhase = if (record.automaticDoubao && (rotating || received.provider == (record.automaticProvider ?: "doubao"))) "launch" else "manual",
                 executionStartedAt = System.currentTimeMillis()))
             if (received.status == "leased") prepareCurrent()
             else publish("任务已结束或租约失效，请核对服务端终态并归档")
@@ -246,16 +263,45 @@ class AndroidScheduler internal constructor(
         val job = requireNotNull(record.job)
         if (record.sessionId != null || record.outbox != null) return
         require(job.status == "leased")
+        if (record.automaticDoubao && record.automaticAllPlatforms && record.executionPhase == "launch") {
+            prepareAutomaticCapture(job.provider)
+        }
         val current = capture.state.value
         val config = settings.settings.first().capture
         if (current.phase != CapturePhase.CAPTURING || current.sessionId == null || !config.decryptHttps ||
-            PlatformCatalog.byId(job.provider)?.packageCandidates?.any { it in config.packages } != true) {
+            !captureMatches(job.provider, current.sessionId, config)) {
             publish("已领取；等待目标应用的 HTTPS 采集启动后自动准备，请暂勿发题")
             return
         }
         persist(record.copy(sessionId = current.sessionId, startedAfter = System.currentTimeMillis()))
         publish("采集已自动准备；请在目标应用新对话发送一次原文，完整回答将自动回传")
     }
+    /** 只在新任务发送前切换 VPN；临时白名单及 UDP 策略不改用户设置，也不清理历史。 */
+    private suspend fun prepareAutomaticCapture(provider: String) {
+        val config = settings.settings.first().capture
+        require(config.decryptHttps && provider in PhonePlatforms.packages)
+        val current = capture.state.value
+        if (current.phase == CapturePhase.CAPTURING && current.sessionId == automaticCaptureSession &&
+            provider == automaticCaptureProvider) return
+        if (current.phase !in setOf(CapturePhase.IDLE, CapturePhase.FAILED)) {
+            capture.stop()
+            withTimeout(20_000) { capture.state.first { it.phase in setOf(CapturePhase.IDLE, CapturePhase.FAILED) } }
+        }
+        automaticCaptureSession = null
+        automaticCaptureProvider = null
+        capture.start(config.copy(packages = setOf(PhonePlatforms.packageName(provider)),
+            blockUdp443 = provider in setOf("doubao", "qianwen")))
+        val ready = withTimeout(20_000) {
+            capture.state.first { it.phase in setOf(CapturePhase.CAPTURING, CapturePhase.FAILED) }
+        }
+        check(ready.phase == CapturePhase.CAPTURING && ready.sessionId != null) { "目标平台采集未就绪" }
+        automaticCaptureSession = ready.sessionId
+        automaticCaptureProvider = provider
+    }
+    private fun captureMatches(provider: String, session: String?, config: CaptureConfig): Boolean =
+        if (record.automaticDoubao && record.automaticAllPlatforms)
+            session != null && session == automaticCaptureSession && provider == automaticCaptureProvider
+        else PlatformCatalog.byId(provider)?.packageCandidates?.any { it in config.packages } == true
     fun collect() = action {
         if (record.outbox != null) { tick(); return@action }
         collectCurrent()
@@ -269,7 +315,7 @@ class AndroidScheduler internal constructor(
         val activeSession = current.sessionId
         if (current.phase == CapturePhase.CAPTURING && activeSession != null && activeSession != session &&
             activeSession !in record.additionalSessionIds.orEmpty() && config.decryptHttps &&
-            PlatformCatalog.byId(job.provider)?.packageCandidates?.any { it in config.packages } == true) {
+            captureMatches(job.provider, activeSession, config)) {
             // 覆盖更新/重启后仍读取原证据，新增会话沿用原时间边界，不把它当作重新发送授权。
             persist(record.copy(additionalSessionIds = record.additionalSessionIds.orEmpty() + activeSession))
         }
@@ -314,13 +360,14 @@ class AndroidScheduler internal constructor(
     private suspend fun executeCurrent() {
         val job = record.job ?: return
         val phase = record.executionPhase ?: "manual" // 旧任务绝不因更新获得发题授权。
-        if (phase == "manual" || !record.automaticDoubao || job.provider != (record.automaticProvider ?: "doubao")) return
+        if (phase == "manual" || !record.automaticDoubao ||
+            (!record.automaticAllPlatforms && job.provider != (record.automaticProvider ?: "doubao"))) return
         if (System.currentTimeMillis() - record.executionStartedAt > 240_000L) {
             publish("自动执行超时，保存失败结果；不会重复发送")
             failCurrent(); return
         }
         if (phase in setOf("send_started", "sent", "blocked")) {
-            publish(if (phase == "sent") "问题已单次发送，等待本次完整回答自动回传"
+            publish(if (phase == "sent") "已执行单次发送操作，等待本次完整回答；不会重复发送"
                 else "发送结果待确认；只检查已有采集，不自动补发")
             return
         }
@@ -331,20 +378,14 @@ class AndroidScheduler internal constructor(
         val screen = phone.observe(job.prompt)
         val action = TextConversationExecution.decide(phase, screen, job.prompt)
         if (action == PhoneAction.WAIT) { publish("等待目标应用可操作页面及手机解锁；不会重复发送"); return }
-        val next = when (action) {
-            PhoneAction.LAUNCH -> "opening"
-            PhoneAction.FOCUS_INPUT -> "opening"
-            PhoneAction.NEW_CONVERSATION -> if (job.provider == "yuanbao") "opening" else "editing"
-            PhoneAction.SET_TEXT -> "verifying"
-            PhoneAction.SEND -> "send_started"
-            else -> return
-        }
+        val next = TextConversationExecution.nextPhase(action, job.provider) ?: return
         // 所有 UI 操作前写盘；send_started 即使崩溃/点击返回 false 也永不再点。
         persist(record.copy(executionPhase = next))
         val accepted = phone.perform(action, job.prompt)
         persist(record.copy(executionPhase = if (!accepted) "blocked" else if (action == PhoneAction.SEND) "sent" else next))
-        publish(if (!accepted) "界面操作未确认；保留记录，不自动重复操作"
-            else if (action == PhoneAction.SEND) "问题已单次发送，等待本次完整回答自动回传"
+        publish(if (!accepted && action == PhoneAction.LAUNCH) "目标应用未进入前台；请检查系统后台启动权限。记录已保留，不自动补发"
+            else if (!accepted) "界面操作未确认；保留记录，不自动重复操作"
+            else if (action == PhoneAction.SEND) "已执行单次发送操作，等待本次完整回答；不会重复发送"
             else "正在自动新建对话并核对问题全文")
     }
     fun reviewTerminal() = action {

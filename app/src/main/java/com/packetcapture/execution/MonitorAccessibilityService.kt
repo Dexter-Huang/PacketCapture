@@ -13,9 +13,11 @@ import android.view.accessibility.AccessibilityNodeInfo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/** 每次操作重新取根节点；仅精确输入提示可按节点边界聚焦，事件回调不自动重试。 */
+/** 每次操作重新取根节点；手势仅用于精确节点的当前边界，事件回调不自动重试。 */
 class MonitorAccessibilityService : AccessibilityService() {
     private var confirmedDraftProvider: String? = null
+    private var wenxinModeConfirmed = false
+    private var kimiQuickConfirmed = false
     override fun onServiceConnected() { connected = this }
     override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
     override fun onInterrupt() = Unit
@@ -30,7 +32,7 @@ class MonitorAccessibilityService : AccessibilityService() {
         visit(root)
     }
     private fun input(nodes: List<AccessibilityNodeInfo>, provider: String) = nodes.singleOrNull {
-        (provider in setOf("yuanbao", "deepseek", "qianwen") || it.viewIdResourceName == "${DoubaoExecution.PACKAGE}:id/input_text") && it.isEditable && it.isVisibleToUser
+        (provider in setOf("yuanbao", "deepseek", "qianwen", "wenxin", "kimi") || it.viewIdResourceName == "${DoubaoExecution.PACKAGE}:id/input_text") && it.isEditable && it.isVisibleToUser
     }
     private fun clickable(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
         var current = node
@@ -42,6 +44,44 @@ class MonitorAccessibilityService : AccessibilityService() {
         return null
     }
     private fun create(nodes: List<AccessibilityNodeInfo>, provider: String): AccessibilityNodeInfo? {
+        if (provider == "kimi") {
+            fun label(text: String) = nodes.singleOrNull { it.isVisibleToUser && it.text?.toString() == text }
+            if (label("快速对话，即时响应") != null) return clickable(label("快速"))
+            clickable(nodes.singleOrNull { it.isVisibleToUser && it.contentDescription?.toString() == "开启新会话" })?.let { return it }
+            // 3.1.4 抽屉顶部新会话图标无标签，按头像所在顶栏的唯一相邻按钮识别。
+            if (label("历史会话") != null) {
+                val avatar = nodes.singleOrNull { it.isVisibleToUser && it.contentDescription?.toString() == "用户头像" }
+                val profile = avatar?.parent
+                val drawer = profile?.parent
+                if (profile?.childCount == 2 && profile.getChild(0) == avatar && drawer != null) {
+                    val index = (0 until drawer.childCount).singleOrNull { drawer.getChild(it) == profile }
+                    val button = index?.let { drawer.getChild(it + 1) }
+                    if (button?.className?.toString() == "android.widget.Button" && button.childCount == 0 &&
+                        button.text.isNullOrEmpty() && button.contentDescription.isNullOrEmpty()) return clickable(button)
+                }
+            }
+            if (!kimiQuickConfirmed && (confirmedDraftProvider == provider || nodes.any { it.isVisibleToUser && it.text?.toString()?.let { text ->
+                    text.startsWith("嗨") && text.endsWith("今天要和 Kimi 一起做点什么") } == true })) return clickable(label("快速"))
+            // 再次打开已有空白页时欢迎语可能消失；经导航新建会话重新建立边界。
+            if (!kimiQuickConfirmed && label("快速") != null) return clickable(nodes.singleOrNull {
+                it.isVisibleToUser && it.contentDescription?.toString() == "导航按钮"
+            })
+            return null
+        }
+        if (provider == "wenxin") {
+            fun label(text: String) = nodes.singleOrNull { it.isVisibleToUser && it.text?.toString() == text }
+            if (label("自动模式") != null && label("智能切换思考模式，更懂你") != null) return clickable(label("自动模式"))
+            clickable(label("新建对话"))?.let { return it }
+            if (label("Hi，我是文心") != null && !wenxinModeConfirmed) return clickable(label("新对话"))
+            // 已有会话标题是动态正文，不能依赖「对话」字样；仅匹配已核实的唯一原生顶栏。
+            val toolbar = nodes.singleOrNull { node -> node.isVisibleToUser &&
+                node.viewIdResourceName == "${WenxinExecution.PACKAGE}:id/obfuscated" &&
+                node.className?.toString() == "android.widget.RelativeLayout" && node.childCount == 3 &&
+                (0 until node.childCount).map { node.getChild(it)?.className?.toString().orEmpty() } ==
+                    listOf("android.widget.LinearLayout", "android.widget.ImageView", "android.view.ViewGroup")
+            } ?: return null
+            return clickable(toolbar.getChild(1))
+        }
         if (provider == "qianwen") return clickable(nodes.singleOrNull {
             it.isVisibleToUser && it.viewIdResourceName == "${QianwenExecution.PACKAGE}:id/layout_new_session_float"
         }) ?: clickable(nodes.singleOrNull { it.isVisibleToUser && it.contentDescription?.toString() == "打开侧边栏" })
@@ -59,6 +99,27 @@ class MonitorAccessibilityService : AccessibilityService() {
         }
     }
     private fun send(nodes: List<AccessibilityNodeInfo>, provider: String): AccessibilityNodeInfo? {
+        // Kimi 的发送图标不提供 ACTION_CLICK，向上找会误命中整个输入面板。
+        // 必须保留图标本身的当前边界，单次发送时由系统手势点击该节点中心。
+        if (provider == "kimi") return nodes.singleOrNull {
+            it.isVisibleToUser && it.isEnabled && it.contentDescription?.toString() == "发送讯息"
+        }?.takeIf { node ->
+            val bounds = Rect().also(node::getBoundsInScreen)
+            bounds.width() in 1..200 && bounds.height() in 1..200 && input(nodes, provider) != null
+        }
+        if (provider == "wenxin") {
+            val field = input(nodes, provider) ?: return null
+            val row = field.parent?.parent?.parent ?: return null
+            if (row.className?.toString() != "android.view.ViewGroup" || !WenxinExecution.sendRow(
+                    (0 until row.childCount).map { row.getChild(it)?.className?.toString().orEmpty() })) return null
+            val tools = row.getChild(2) ?: return null
+            if (tools.childCount != 2) return null
+            val frame = tools.getChild(1) ?: return null
+            if (frame.className?.toString() != "android.widget.FrameLayout" || frame.childCount != 1) return null
+            return frame.getChild(0)?.takeIf { it.className?.toString() == "android.widget.ImageView" &&
+                it.viewIdResourceName == "${WenxinExecution.PACKAGE}:id/obfuscated" &&
+                it.isVisibleToUser && it.isEnabled && it.isClickable && !field.text.isNullOrEmpty() }
+        }
         if (provider == "qianwen") {
             val mention = nodes.singleOrNull { it.isVisibleToUser && it.contentDescription?.toString() == "@" } ?: return null
             val row = mention.parent ?: return null
@@ -93,6 +154,17 @@ class MonitorAccessibilityService : AccessibilityService() {
         return null
     }
     private fun isNew(nodes: List<AccessibilityNodeInfo>, provider: String): Boolean {
+        if (provider == "kimi") return KimiExecution.isNew(
+            nodes.any { it.isVisibleToUser && it.text?.toString()?.let { text ->
+                text.startsWith("嗨") && text.endsWith("今天要和 Kimi 一起做点什么") } == true },
+            confirmedDraftProvider == provider, kimiQuickConfirmed,
+            nodes.none { it.isVisibleToUser && it.text?.toString() == "快速" } ||
+                nodes.any { it.isVisibleToUser && (it.text?.toString() in setOf("历史会话", "思考等级", "快速对话，即时响应") ||
+                    it.contentDescription?.toString() == "开启新会话") })
+        if (provider == "wenxin") return WenxinExecution.isNew(
+            nodes.any { it.isVisibleToUser && it.text?.toString() == "Hi，我是文心" },
+            nodes.any { it.isVisibleToUser && it.text?.toString() == "新对话" }, wenxinModeConfirmed,
+            nodes.any { it.isVisibleToUser && it.text?.toString() in setOf("新建对话", "智能切换思考模式，更懂你", "文心大模型5.1") })
         if (provider == "qianwen") return QianwenExecution.isNew(
             nodes.any { it.isVisibleToUser && it.text?.toString() == "我是千问" },
             nodes.any { it.isVisibleToUser && it.contentDescription?.toString() == "日常" && it.isSelected },
@@ -126,7 +198,7 @@ class MonitorAccessibilityService : AccessibilityService() {
     }
     private fun snapshot(prompt: String, provider: String): PhoneScreen {
         if (!unlocked()) return PhoneScreen(unlocked = false)
-        if (provider in setOf("deepseek", "qianwen") && Build.VERSION.SDK_INT >= 33) clearCache()
+        if (provider in setOf("deepseek", "qianwen", "wenxin", "kimi") && Build.VERSION.SDK_INT >= 33) clearCache()
         val root = rootInActiveWindow ?: return PhoneScreen()
         root.refresh()
         if (root.packageName?.toString() != PhonePlatforms.packageName(provider)) return PhoneScreen()
@@ -143,16 +215,32 @@ class MonitorAccessibilityService : AccessibilityService() {
     }
     private fun inputHint(nodes: List<AccessibilityNodeInfo>, provider: String): AccessibilityNodeInfo? {
         val label = when (provider) { "deepseek" -> "发消息或按住说话"; "qianwen" -> "发消息或按住说话..."; else -> return null }
-        return nodes.singleOrNull { it.isVisibleToUser && it.text?.toString() == label }
+        nodes.singleOrNull { it.isVisibleToUser && it.text?.toString() == label }?.let { return it }
+        if (provider != "deepseek") return null
+        // Compose 有时省略提示语节点。只在已确认空会话中，按完整工具栏结构定位输入区域。
+        val thinking = nodes.singleOrNull { it.isVisibleToUser && it.text?.toString() == "深度思考" } ?: return null
+        val modes = thinking.parent?.parent ?: return null
+        val panel = modes.parent ?: return null
+        if (panel.childCount != 4 || panel.getChild(1) != modes || modes.childCount != 2 ||
+            (0 until modes.childCount).map { modes.getChild(it)?.getChild(0)?.text?.toString() } != listOf("深度思考", "智能搜索") ||
+            (0 until modes.childCount).any { modes.getChild(it)?.isCheckable != true || modes.getChild(it)?.isChecked != false } ||
+            nodes(panel.getChild(2) ?: return null).none { it.contentDescription?.toString() == "上传文件" } ||
+            nodes(panel.getChild(3) ?: return null).none { it.contentDescription?.toString() == "切换至语音" }) return null
+        val wrapper = panel.getChild(0) ?: return null
+        if (wrapper.childCount != 1) return null
+        return wrapper.getChild(0)?.takeIf { it.isVisibleToUser && it.isEnabled &&
+            it.className?.toString() == "android.view.View" && it.childCount == 0 && it.text.isNullOrEmpty() }
     }
     private fun act(action: PhoneAction, prompt: String, provider: String): Boolean {
         if (!unlocked()) return false
         if (action == PhoneAction.LAUNCH) {
             confirmedDraftProvider = null
+            wenxinModeConfirmed = false
+            kimiQuickConfirmed = false
             val intent = packageManager.getLaunchIntentForPackage(PhonePlatforms.packageName(provider)) ?: return false
             startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); return true
         }
-        if (provider in setOf("deepseek", "qianwen") && Build.VERSION.SDK_INT >= 33) clearCache()
+        if (provider in setOf("deepseek", "qianwen", "wenxin", "kimi") && Build.VERSION.SDK_INT >= 33) clearCache()
         val root = rootInActiveWindow ?: return false
         root.refresh()
         if (root.packageName?.toString() != PhonePlatforms.packageName(provider)) return false
@@ -163,7 +251,7 @@ class MonitorAccessibilityService : AccessibilityService() {
                 else {
                     val hint = inputHint(all, provider) ?: return false
                     if (hint.performAction(AccessibilityNodeInfo.ACTION_CLICK)) true else {
-                        // 只聚焦精确提示节点的当前边界；填写和发送不使用手势。
+                        // 只聚焦精确提示节点的当前边界，不使用固定坐标或手势填写。
                         val bounds = Rect().also(hint::getBoundsInScreen)
                         if (bounds.isEmpty) false else dispatchGesture(GestureDescription.Builder().addStroke(
                             GestureDescription.StrokeDescription(Path().apply {
@@ -173,11 +261,20 @@ class MonitorAccessibilityService : AccessibilityService() {
                 }
             }
             PhoneAction.NEW_CONVERSATION -> {
-                confirmedDraftProvider = null
+                if (provider != "kimi") confirmedDraftProvider = null
+                val kimiNew = provider == "kimi" && all.any { it.isVisibleToUser &&
+                    (it.contentDescription?.toString() == "开启新会话" || it.text?.toString() == "历史会话" || it.text?.toString()?.let { text ->
+                        text.startsWith("嗨") && text.endsWith("今天要和 Kimi 一起做点什么") } == true) }
+                val choosingWenxinMode = provider == "wenxin" && all.any { it.isVisibleToUser && it.text?.toString() == "自动模式" }
+                val choosingKimiQuick = provider == "kimi" && all.any { it.isVisibleToUser && it.text?.toString() == "快速对话，即时响应" }
                 val enteredNew = provider == "yuanbao" && all.any {
                     it.isVisibleToUser && (it.contentDescription?.toString() == "新建对话" || it.text?.toString() == "新建对话")
                 }
                 val accepted = create(all, provider)?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
+                if (accepted && choosingWenxinMode) wenxinModeConfirmed = true
+                if (accepted && choosingKimiQuick) kimiQuickConfirmed = true
+                // 快速模式选择会隐藏欢迎语，保留此前明确进入空会话的证据供全文回读。
+                if (accepted && kimiNew) confirmedDraftProvider = provider
                 if (accepted && enteredNew) confirmedDraftProvider = provider
                 accepted
             }
@@ -201,7 +298,14 @@ class MonitorAccessibilityService : AccessibilityService() {
                 val field = input(all, provider)
                 val actual = field?.text?.toString() ?: if (provider == "deepseek") deepseekInput() else null
                 if (!isNew(all, provider) || actual != prompt || promptVisible(all, prompt)) false
-                else send(all, provider)?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
+                else if (provider == "kimi") {
+                    val node = send(all, provider) ?: return false
+                    val bounds = Rect().also(node::getBoundsInScreen)
+                    dispatchGesture(GestureDescription.Builder().addStroke(
+                        GestureDescription.StrokeDescription(Path().apply {
+                            moveTo(bounds.exactCenterX(), bounds.exactCenterY())
+                        }, 0, 80)).build(), null, null)
+                } else send(all, provider)?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
             }
             else -> false
         }
@@ -213,7 +317,20 @@ class MonitorAccessibilityService : AccessibilityService() {
             override fun available() = connected != null
             override suspend fun observe(prompt: String) = withContext(Dispatchers.Main) { connected?.snapshot(prompt, provider) ?: PhoneScreen() }
             override suspend fun perform(action: PhoneAction, prompt: String) = withContext(Dispatchers.Main) {
-                connected?.act(action, prompt, provider) == true
+                if (connected?.act(action, prompt, provider) != true) false
+                else if (action != PhoneAction.LAUNCH) true
+                else {
+                    // 系统可能拒绝后台启动而不抛异常；必须确认目标真实前台后才推进执行阶段。
+                    var foreground = false
+                    repeat(20) {
+                        if (!foreground) {
+                            kotlinx.coroutines.delay(250)
+                            if (Build.VERSION.SDK_INT >= 33) connected?.clearCache()
+                            foreground = connected?.rootInActiveWindow?.packageName?.toString() == PhonePlatforms.packageName(provider)
+                        }
+                    }
+                    foreground
+                }
             }
         }
     }

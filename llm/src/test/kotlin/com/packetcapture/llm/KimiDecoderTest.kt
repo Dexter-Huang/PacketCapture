@@ -121,6 +121,30 @@ class KimiDecoderTest {
         assertNotEquals("unique_complete",read(stream(events().map { if(it["mask"]=="block.text.content") it+("mask" to "block.future") else it })).selectionStatus)
         assertNotEquals("unique_complete",read(stream(events().map { if(it["mask"]=="block.text.content") it+("op" to 1) else it })).selectionStatus)
     }
+    @Test fun reasoningSummaryMayArriveDuringItsStageButCannotAuthorizeAnIncompleteStream() = runTest {
+        val summary=event(0,"block.think.summary",1,"block" to mapOf("id" to "3","parentId" to "2",
+            "think" to mapOf("summary" to "合成摘要")))
+        fun summarized(copies:Int=1, afterMask:String="block.think", finishStage:Boolean=true):ByteArray {
+            val base=events().toMutableList()
+            val index=base.indexOfFirst { it["mask"]==afterMask }
+            repeat(copies) { base.add(index+1,summary) }
+            var offset=0
+            return stream(base.filterNot { !finishStage && it["mask"]=="block.stage" &&
+                ((it["block"] as? Map<*,*>)?.get("stage") as? Map<*,*>)?.get("status")==2 }
+                .map { if(it.containsKey("heartbeat")) it else it+("eventOffset" to ++offset) })
+        }
+        // 摘要后继续追加推理也保留原顺序，摘要不会进入推理或正文。
+        val good=read(summarized());assertEquals("unique_complete",good.selectionStatus)
+        assertEquals("推理开头🌈",good.results.single().reasoning)
+        assertEquals("**正文**🌈\n结尾",good.results.single().answer)
+        val updated=read(summarized(copies=2))
+        assertEquals("unique_complete",updated.selectionStatus)
+        assertEquals(good.results.single().reasoning,updated.results.single().reasoning)
+        assertEquals(good.results.single().answer,updated.results.single().answer)
+        assertNotEquals("unique_complete",read(summarized(afterMask="block.stage")).selectionStatus)
+        assertNotEquals("unique_complete",read(summarized(afterMask="message.status")).selectionStatus)
+        assertNotEquals("unique_complete",read(summarized(finishStage=false)).selectionStatus)
+    }
     @Test fun identitySequenceAndCurrentQuestionMustMatch() = runTest {
         assertNotEquals("unique_complete",read(req=request("different")).selectionStatus)
         for(mask in listOf("message","message.status","block.text.content")) {

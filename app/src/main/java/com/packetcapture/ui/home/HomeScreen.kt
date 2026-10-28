@@ -20,6 +20,9 @@ import com.packetcapture.ui.settings.CertificateGuideDialog
 import com.packetcapture.ui.settings.SettingsScreen
 import com.packetcapture.ui.workbench.TasksScreen
 import com.packetcapture.ui.workbench.WorkbenchScreen
+import com.packetcapture.ui.workbench.RpaSetupGuide
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 /** 首页操作集合；具体功能页面只接收自身所需的数据和回调。 */
 data class CaptureActions(
@@ -39,11 +42,20 @@ data class CaptureActions(
     var appPicker by remember { mutableStateOf(false) }
     var bypass by remember { mutableStateOf(false) }
     var guide by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val setupPreferences = remember { context.getSharedPreferences("rpa-setup", android.content.Context.MODE_PRIVATE) }
+    var setupGuide by remember { mutableStateOf(!setupPreferences.getBoolean("guide-seen-v1", false)) }
+    val scheduling = scheduler?.state?.collectAsStateWithLifecycle()?.value
+    fun closeSetupGuide() {
+        setupPreferences.edit().putBoolean("guide-seen-v1", true).apply()
+        setupGuide = false
+    }
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(state.message) { state.message?.let { snackbar.showSnackbar(it); actions.clearMessage() } }
     LaunchedEffect(page) { if (page == 3) { actions.refreshStorage(); actions.certificate() } }
     Scaffold(snackbarHost = { SnackbarHost(snackbar) }, topBar = {
-        TopAppBar(title = { Text(listOf("GEO 设备工作台", "任务工作区", "采集工具", "设置")[page], fontWeight = FontWeight.Bold) })
+        TopAppBar(title = { Text(listOf("GEO 设备工作台", "任务工作区", "采集工具", "设置")[page], fontWeight = FontWeight.Bold) },
+            actions = { TextButton(onClick = { setupGuide = true }) { Text("运行指南") } })
     }, bottomBar = {
         NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
             listOf("工作台" to Icons.Outlined.Dashboard, "任务" to Icons.AutoMirrored.Outlined.Assignment,
@@ -88,4 +100,8 @@ data class CaptureActions(
         bypass = false
     }
     if (guide) CertificateGuideDialog(onDismiss = { guide = false })
+    if (setupGuide && state.ready && scheduling?.running != true && scheduling?.job == null) {
+        RpaSetupGuide(state.apps, state.settings.scheduler.providers, onDismiss = ::closeSetupGuide,
+            onConfigure = { closeSetupGuide(); page = 3 })
+    }
 }

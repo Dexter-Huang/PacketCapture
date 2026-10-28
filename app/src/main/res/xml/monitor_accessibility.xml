@@ -7,4 +7,4 @@
     android:canPerformGestures="true"
     android:description="@string/monitor_accessibility_description"
     android:notificationTimeout="200"
-    android:packageNames="com.larus.nova,com.tencent.hunyuan.app.chat,com.deepseek.chat,com.aliyun.tongyi" />
+    android:packageNames="com.larus.nova,com.tencent.hunyuan.app.chat,com.deepseek.chat,com.aliyun.tongyi,com.baidu.newapp,com.moonshot.kimichat" />

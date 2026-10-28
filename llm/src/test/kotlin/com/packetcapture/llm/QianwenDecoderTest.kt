@@ -57,6 +57,22 @@ class QianwenDecoderTest {
         assertEquals("", result.reasoning)
     }
 
+    @Test fun quickWriterProgressAndEmptyFollowupRequireCompleteSequence() {
+        val followup = """{"mime_type":"paa/iframe","status":"complete","meta_data":{"show_type":"","scene":"","exclusive_card_types":[],"paas":[],"append_msg":{"mime_type":"","content":"","status":"","meta_data":{"multi_load":[]}}}}"""
+        val items = listOf(messages.first(),
+            """{"mime_type":"bar/progress","status":"processing","meta_data":{"type":"cot"}}""",
+            """{"mime_type":"bar/iframe","status":"complete","meta_data":{"sources":[]}}""",
+            snapshot("multi_load/iframe", "合成正文"), patch("multi_load/iframe", finish),
+            """{"mime_type":"bar/progress","status":"complete","meta_data":{"type":"generated"}}""", followup)
+        val body = stream(items).replace("\"error_msg\":\"\",\"communication\":{\"reqid\":\"req\",\"sessionid\":\"session\",\"resid\":6", "\"communication\":{\"reqid\":\"req\",\"sessionid\":\"session\",\"resid\":6")
+        assertEquals("complete", decode(body).status)
+        assertEquals("合成正文", decode(body).answer)
+        assertEquals("incomplete", decode(stream(items, terminal = false)).status)
+        assertEquals("unsupported", decode(stream(items.map { it.replace("\"paas\":[]", "\"paas\":[{}]") })).status)
+        assertEquals("unsupported", decode(stream(items.map { it.replace("\"sources\":[]", "\"sources\":[{}]") })).status)
+        assertEquals("incomplete", decode(stream(items.filterNot { it.contains("generated") })).status)
+    }
+
     @Test fun sourcesSurviveFinalEmptySnapshotAndAreDeduplicatedValidatedAndSeparate() {
         val result = decode()
         assertEquals(listOf(SearchSource("参考一", "https://example.test/one", null), SearchSource("参考二", "http://example.test/two", null)), result.searchSources)

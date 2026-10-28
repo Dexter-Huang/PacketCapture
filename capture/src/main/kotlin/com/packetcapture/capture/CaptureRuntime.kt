@@ -42,6 +42,8 @@ class CaptureRuntime(
     private val generation = AtomicLong()
     @Volatile private var requested = CaptureConfig()
     private var service: CaptureVpnService? = null
+    private var stoppingService: CaptureVpnService? = null
+    private var stoppingReason: String? = null
     private var network: Network? = null
     private var session: CaptureSession? = null
     private var tun: ParcelFileDescriptor? = null
@@ -96,6 +98,14 @@ class CaptureRuntime(
         }
     }
     internal fun destroyed(instance: CaptureVpnService) {
+        scope.launch { mutex.withLock {
+            if (stoppingService === instance) {
+                stoppingService = null
+                val reason = stoppingReason; stoppingReason = null
+                phase(CapturePhase.IDLE)
+                if (reason != null) { phase(CapturePhase.STARTING); phase(CapturePhase.FAILED, reason) }
+            }
+        } }
         if (service === instance) stopWithReason("抓包服务已结束")
     }
     private fun selectNetwork(): Network {
@@ -228,11 +238,16 @@ class CaptureRuntime(
             runCatching { repository.saveSession(final) }
         }
         session = null; recorder = null; native = null; network = null
-        phase(CapturePhase.IDLE)
         if (stopService) {
             val current = service; service = null
-            current?.stopForeground(android.app.Service.STOP_FOREGROUND_REMOVE); current?.stopSelf()
-            if (reason != null) { phase(CapturePhase.STARTING); phase(CapturePhase.FAILED, reason) }
-        }
+            if (current != null) {
+                // 等待旧 Service 的 onDestroy 后才允许下一轮，避免复用正在停止的实例。
+                stoppingService = current; stoppingReason = reason
+                current.stopForeground(android.app.Service.STOP_FOREGROUND_REMOVE); current.stopSelf()
+            } else {
+                phase(CapturePhase.IDLE)
+                if (reason != null) { phase(CapturePhase.STARTING); phase(CapturePhase.FAILED, reason) }
+            }
+        } else phase(CapturePhase.IDLE)
     }
 }

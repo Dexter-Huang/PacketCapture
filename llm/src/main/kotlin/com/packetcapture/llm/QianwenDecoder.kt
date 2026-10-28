@@ -72,7 +72,10 @@ internal class QianwenDecoder : AnswerDecoder {
         private var workflowStarted = false
         private var workflowFinished = false
         private var terminal = false
-        val finished get() = terminal && textStarted && textFinished && (!workflowStarted || workflowFinished)
+        private var progressStarted = false
+        private var progressFinished = false
+        val finished get() = terminal && textStarted && textFinished && (!workflowStarted || workflowFinished) &&
+            (!progressStarted || progressFinished)
 
         private fun schema(valid: Boolean, diagnostic: String = "unrecognized_event"): Boolean {
             if (!valid) { unknown = true; issues += diagnostic }
@@ -86,13 +89,16 @@ internal class QianwenDecoder : AnswerDecoder {
             obj!!
             val data = obj.qwObj("data")
             val communication = obj.qwObj("communication")
+            val emptyFollowup = data?.qwObjects("messages")?.singleOrNull()?.let {
+                it.qwString("mime_type") == "paa/iframe" && emptyFollowup(it)
+            } == true
             if (event.type.contains("error", ignoreCase = true) ||
                 obj.qwInt("error_code")?.let { it != 0 } == true || !obj.qwString("error_msg").isNullOrEmpty() ||
                 data?.qwObj("audit_info")?.qwInt("error_code")?.let { it != 0 } == true ||
                 communication?.qwInt("disconnection_signal")?.let { it != 0 } == true) {
                 remoteError = true; issues += "remote_error"; return
             }
-            if (!schema(obj.qwInt("error_code") == 0 && obj.qwString("error_msg") == "" &&
+            if (!schema(obj.qwInt("error_code") == 0 && (obj.qwString("error_msg") == "" || !obj.has("error_msg") && emptyFollowup) &&
                     data?.qwObj("audit_info")?.qwInt("error_code") == 0 && communication?.qwInt("disconnection_signal") == 0)) return
             if (!schema(communication!!.qwString("reqid") != null && communication.qwString("sessionid") != null &&
                     (reqId == null || communication.qwString("reqid") == reqId) &&
@@ -115,7 +121,7 @@ internal class QianwenDecoder : AnswerDecoder {
 
         private fun acceptMessage(message: JsonObject) {
             val mime = message.qwString("mime_type")
-            if (!schema(mime in setOf("signal/post", "bar/workflow", "multi_load/iframe"))) return
+            if (!schema(mime in setOf("signal/post", "bar/workflow", "multi_load/iframe", "bar/progress", "bar/iframe", "paa/iframe"))) return
             val patches = message.qwObjects("patch")
             if (message.has("patch")) {
                 if (!schema(!patches.isNullOrEmpty() && mime != "signal/post" && !message.has("content") && !message.has("status"))) return
@@ -123,6 +129,21 @@ internal class QianwenDecoder : AnswerDecoder {
                 return
             }
             when (mime) {
+                "bar/progress" -> {
+                    val kind = message.qwObj("meta_data")?.qwString("type")
+                    when {
+                        kind == "cot" && message.qwString("status") == "processing" -> {
+                            if (schema(!progressStarted && !textStarted)) progressStarted = true
+                        }
+                        kind == "generated" && message.qwString("status") == "complete" -> {
+                            if (schema(progressStarted && !progressFinished && textFinished)) progressFinished = true
+                        }
+                        else -> schema(false)
+                    }
+                }
+                "bar/iframe" -> schema(!textStarted && message.qwString("status") == "complete" &&
+                    message.qwObj("meta_data")?.qwObjects("sources")?.isEmpty() == true)
+                "paa/iframe" -> schema(textFinished && emptyFollowup(message))
                 "signal/post" -> schema(!textStarted && message.qwString("status") == "complete" && message.qwObj("meta_data") != null)
                 "bar/workflow" -> {
                     val status = message.qwString("status")
@@ -140,6 +161,17 @@ internal class QianwenDecoder : AnswerDecoder {
                     acceptLoads(message.qwObj("meta_data")!!, mime)
                 }
             }
+        }
+
+        /** 仅接受已观察的空追问卡；非空卡及未知结构继续拒绝完成。 */
+        private fun emptyFollowup(message: JsonObject): Boolean {
+            val meta = message.qwObj("meta_data") ?: return false
+            val append = meta.qwObj("append_msg") ?: return false
+            fun emptyArray(key: String) = meta.get(key)?.let { it.isJsonArray && it.asJsonArray.size() == 0 } == true
+            return message.qwString("status") == "complete" && meta.qwString("show_type") == "" &&
+                meta.qwString("scene") == "" && emptyArray("exclusive_card_types") && emptyArray("paas") &&
+                append.qwString("mime_type") == "" && append.qwString("content") == "" &&
+                append.qwString("status") == "" && append.qwObj("meta_data")?.qwObjects("multi_load")?.isEmpty() == true
         }
 
         private fun acceptPatch(mime: String, patch: JsonObject) {

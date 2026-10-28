@@ -45,18 +45,35 @@ import com.packetcapture.ui.components.Muted
                 Switch(state.automaticDoubao, scheduler::automaticDoubao,
                     enabled = !state.running && state.job == null && !state.busy)
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                for ((id, name) in com.packetcapture.execution.PhonePlatforms.names) {
+            if (state.automaticDoubao) Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Text("按计划平台自动轮转", Modifier.weight(1f))
+                Switch(state.automaticAllPlatforms, scheduler::automaticAllPlatforms,
+                    enabled = !state.running && state.job == null && !state.busy)
+            }
+            for (platforms in com.packetcapture.execution.PhonePlatforms.names.entries.chunked(3)) {
+              Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                for ((id, name) in platforms) {
                     FilterChip(selected = state.automaticProvider == id, onClick = { scheduler.automaticProvider(id) },
                         enabled = !state.running && state.job == null && !state.busy, label = { Text(name) })
                 }
+              }
             }
             TextButton(onClick = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }) {
                 Text("启用 GEO 无障碍服务")
             }
+            if (state.automaticDoubao) {
+                TextButton(onClick = {
+                    val vendor = Intent("miui.intent.action.APP_PERM_EDITOR").putExtra("extra_pkgname", context.packageName)
+                    val details = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        android.net.Uri.parse("package:${context.packageName}"))
+                    context.startActivity(if (vendor.resolveActivity(context.packageManager) != null) vendor else details)
+                }) { Text("系统后台启动设置") }
+                Muted("跨平台切换需要允许后台打开应用。小米手机请在其他权限中允许“后台弹出界面”。")
+            }
             if (state.job == null) TextButton(onClick = scheduler::checkDoubaoControls,
                 enabled = !state.running && !state.busy) { Text("检查选定平台界面（不发送）") }
-            Muted(if (state.automaticDoubao) "仅自动领取选定平台；需保持解锁、采集运行及网络可用。发送不确定时不会补发。"
+            Muted(if (state.automaticDoubao && state.automaticAllPlatforms) "按设置中的计划平台串行执行，自动切换采集；下方平台用于界面预检。需保持解锁及网络可用，发送不确定时不会补发。"
+                else if (state.automaticDoubao) "仅自动领取选定平台；需保持解锁、采集运行及网络可用。发送不确定时不会补发。"
                 else "当前由你在目标应用发送一次问题。")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = scheduler::start, enabled = !state.running && !state.busy) { Text("继续接单") }

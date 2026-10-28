@@ -14,11 +14,109 @@ import com.packetcapture.execution.*
 
 /** 使用真实调度循环与 AnswerReader，验证自动化不会放宽关联及持久化规则。 */
 class AndroidSchedulerTest {
+    @Test fun rotationClaimsFromIdleAndSwitchesCaptureOnlyAfterPreviousResultIsAcknowledged() = runBlocking {
+        val f = Fixture()
+        try {
+            f.allowCaptureSwitch = true
+            f.captureState.value = CaptureState(CapturePhase.IDLE)
+            val original = f.settings.settings.first()
+            f.settings.update(original.copy(scheduler = original.scheduler.copy(providers = setOf("yuanbao", "doubao"))))
+            f.store.value = f.store.value.copy(automaticDoubao = true, automaticAllPlatforms = true,
+                automaticProvider = "qianwen")
+            f.phone = object : PhoneExecutor {
+                override fun available() = true
+                override suspend fun observe(prompt: String) = PhoneScreen(targetApp = true, newConversation = true,
+                    input = if (f.store.value.executionPhase == "verifying") prompt else "", canSend = true)
+                override suspend fun perform(action: PhoneAction, prompt: String): Boolean {
+                    if (action == PhoneAction.SEND) assertEquals("send_started", f.store.value.executionPhase)
+                    f.phoneActions += action
+                    return true
+                }
+            }
+            f.start()
+            withTimeout(18000) { f.scheduler.state.first { it.executionPhase == "sent" } }
+            assertEquals(setOf("yuanbao", "doubao"), f.claimProviders.single().toSet())
+            assertEquals(setOf("com.tencent.hunyuan.app.chat"), f.captureConfigs.single().packages)
+            assertFalse(f.captureConfigs.single().blockUdp443)
+            val firstSession = f.store.value.sessionId!!
+            val firstBoundary = f.store.value.startedAfter
+            f.job = f.job.copy(jobId = "second-job", taskId = "second-task", provider = "doubao")
+            f.records = listOf(f.exchange(start = firstBoundary + 1).copy(sessionId = firstSession))
+            withTimeout(30000) { f.scheduler.state.first { it.job?.jobId == "second-job" && it.executionPhase == "sent" } }
+            assertEquals(1, f.uploads.size)
+            assertEquals(listOf(false, true), f.captureConfigs.map { it.blockUdp443 })
+            assertEquals(setOf("com.larus.nova"), f.captureConfigs.last().packages)
+            assertNotEquals(firstSession, f.store.value.sessionId)
+            assertTrue(f.store.value.startedAfter > firstBoundary)
+            assertEquals(2, f.phoneActions.count { it == PhoneAction.SEND })
+            assertEquals(original.capture, f.settings.settings.first().capture)
+        } finally { f.close() }
+    }
+
+    @Test fun rotationRestartAfterUncertainSendKeepsBoundaryAndNeverClicksAgain() = runBlocking {
+        val f = Fixture()
+        try {
+            f.allowCaptureSwitch = true
+            f.captureState.value = CaptureState(CapturePhase.IDLE)
+            f.store.value = f.store.value.copy(automaticDoubao = true, automaticAllPlatforms = true,
+                job = f.job, executionPhase = "send_started", executionStartedAt = System.currentTimeMillis(),
+                sessionId = "s", startedAfter = 100L, claimRequestId = "existing")
+            f.phone = object : PhoneExecutor {
+                override fun available() = true
+                override suspend fun observe(prompt: String): PhoneScreen = error("恢复后不得再次观察发送控件")
+                override suspend fun perform(action: PhoneAction, prompt: String): Boolean = error("恢复后不得再次操作界面")
+            }
+            f.start()
+            f.await { it.message.contains("待确认") }
+            assertEquals("s", f.store.value.sessionId)
+            assertEquals(100L, f.store.value.startedAfter)
+            assertEquals(listOf("rotated-1"), f.store.value.additionalSessionIds)
+            assertTrue(f.phoneActions.isEmpty())
+            assertEquals(0, f.claimCount)
+        } finally { f.close() }
+    }
+
     @Test fun automaticSendPersistsBeforeClickAndUncertainClickNeverRepeatsAfterRestart() =
         verifyUncertainSend("doubao", "com.larus.nova")
 
     @Test fun yuanbaoSendUsesSelectedAdapterAndDoesNotRepeatAfterRestart() =
         verifyUncertainSend("yuanbao", "com.tencent.hunyuan.app.chat")
+
+    @Test fun wenxinKeepsOpeningUntilModeAndNewConversationAreConfirmed() = runBlocking {
+        val f = Fixture()
+        try {
+            f.job = f.job.copy(provider = "wenxin")
+            f.settings.update(AppSettings(capture = CaptureConfig(packages = setOf("com.baidu.newapp")),
+                scheduler = SchedulerSettings(providers = setOf("wenxin"))))
+            f.store.value = f.store.value.copy(automaticDoubao = true, automaticProvider = "wenxin")
+            f.phone = object : PhoneExecutor {
+                override fun forProvider(provider: String): PhoneExecutor {
+                    assertEquals("wenxin", provider)
+                    return this
+                }
+                override fun available() = true
+                override suspend fun observe(prompt: String): PhoneScreen {
+                    val created = f.phoneActions.count { it == PhoneAction.NEW_CONVERSATION }
+                    return if (created < 2) PhoneScreen(targetApp = true, canCreateConversation = true)
+                    else PhoneScreen(targetApp = true, newConversation = true,
+                        input = if (f.store.value.executionPhase == "verifying") prompt else "", canSend = true)
+                }
+                override suspend fun perform(action: PhoneAction, prompt: String): Boolean {
+                    f.phoneActions += action
+                    if (action == PhoneAction.SEND) {
+                        assertEquals("send_started", f.store.value.executionPhase)
+                        return false
+                    }
+                    return true
+                }
+            }
+            f.start()
+            withTimeout(18000) { f.scheduler.state.first { it.executionPhase == "blocked" } }
+            assertEquals(2, f.phoneActions.count { it == PhoneAction.NEW_CONVERSATION })
+            assertEquals(listOf(PhoneAction.LAUNCH, PhoneAction.NEW_CONVERSATION, PhoneAction.NEW_CONVERSATION,
+                PhoneAction.SET_TEXT, PhoneAction.SEND), f.phoneActions.toList())
+        } finally { f.close() }
+    }
 
     private fun verifyUncertainSend(provider: String, packageName: String) = runBlocking {
         val f = Fixture()
@@ -199,6 +297,9 @@ class AndroidSchedulerTest {
         @Volatile var failUpload = false
         @Volatile var unsupported = false
         @Volatile var claimCount = 0
+        var allowCaptureSwitch = false
+        val captureConfigs = CopyOnWriteArrayList<CaptureConfig>()
+        val claimProviders = CopyOnWriteArrayList<List<String>>()
         val uploads = CopyOnWriteArrayList<JsonObject>()
         val serializedUploads = CopyOnWriteArrayList<String>()
         val savedBoundaries = CopyOnWriteArrayList<Long>()
@@ -212,13 +313,20 @@ class AndroidSchedulerTest {
         val captureState = MutableStateFlow(CaptureState(CapturePhase.CAPTURING, "s"))
         val capture = object : CaptureController {
             override val state = captureState
-            override fun start(config: CaptureConfig) = error("测试不操作 VPN")
-            override fun stop() = error("测试不操作 VPN")
+            override fun start(config: CaptureConfig) {
+                check(allowCaptureSwitch) { "测试不操作 VPN" }
+                captureConfigs += config
+                captureState.value = CaptureState(CapturePhase.CAPTURING, "rotated-${captureConfigs.size}")
+            }
+            override fun stop() {
+                check(allowCaptureSwitch) { "测试不操作 VPN" }
+                captureState.value = CaptureState(CapturePhase.IDLE)
+            }
             override suspend fun clearStorage() = error("测试不清除数据")
         }
         private val repo = object : CaptureRepository {
             override suspend fun session(id: String): CaptureSession {
-                check(id in setOf("s", "resumed"))
+                check(id in setOf("s", "resumed") || id.startsWith("rotated-"))
                 return CaptureSession(id = id, title = "合成", packages = listOf("com.tencent.hunyuan.app.chat"))
             }
             override suspend fun allConnections(sessionId: String) = emptyList<ConnectionRecord>()
@@ -255,7 +363,11 @@ class AndroidSchedulerTest {
             { _, method, path, body ->
                 paths += path
                 when {
-                    path == "/tasks/claim" -> { claimCount++; gson.toJsonTree(mapOf("job" to job)).asJsonObject }
+                    path == "/tasks/claim" -> {
+                        claimCount++
+                        claimProviders += gson.toJsonTree(body).asJsonObject["providers"].asJsonArray.map { it.asString }
+                        gson.toJsonTree(mapOf("job" to job)).asJsonObject
+                    }
                     path == "/devices/heartbeat" -> gson.toJsonTree(mapOf("deviceId" to "device")).asJsonObject
                     method == "PUT" -> {
                         check(store.value.outbox == body) { "上传前必须持久化完全相同的 JSON" }

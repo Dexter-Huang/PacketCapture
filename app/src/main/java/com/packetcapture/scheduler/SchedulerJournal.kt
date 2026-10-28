@@ -66,6 +66,8 @@ internal data class SchedulerRecord(
     val additionalSessionIds: List<String>? = null,
     val automaticDoubao: Boolean = false,
     val automaticProvider: String? = null,
+    // 缺省关闭，旧安装仍只领取选定平台；开启后按计划平台串行切换采集。
+    val automaticAllPlatforms: Boolean = false,
     val executionPhase: String? = null,
     val executionStartedAt: Long = 0,
 )
